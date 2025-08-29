@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Establishment {
+  id       String        @id @default(cuid())
+  name     String        @unique
+  location String?
+  students Student[]
+  batches  TicketBatch[]
+
+  // Named relation so Prisma can distinguish it
+  tickets Ticket[] @relation("TicketEstablishment")
+
+  createdAt DateTime @default(now())
+}
+
+model Student {
+  id              String        @id @default(cuid())
+  matricule       String        @unique
+  nom             String
+  prenom          String
+  etablissement   Establishment @relation(fields: [etablissementId], references: [id])
+  etablissementId String
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  tickets         Ticket[]
+
+  @@index([etablissementId])
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+}
+
+model TicketBatch {
+  id              String        @id @default(cuid())
+  weekStart       DateTime
+  weekEnd         DateTime
+  etablissement   Establishment @relation(fields: [etablissementId], references: [id])
+  etablissementId String
+  createdById     String
+  createdAt       DateTime      @default(now())
+  tickets         Ticket[]
+
+  @@index([etablissementId])
+}
+
+model Ticket {
+  id        String       @id @default(cuid())
+  code      String       @unique
+  signature String
+  date      DateTime
+  meal      MealType
+  status    TicketStatus @default(UNUSED)
+
+  student   Student @relation(fields: [studentId], references: [id])
+  studentId String
+
+  batch   TicketBatch @relation(fields: [batchId], references: [id])
+  batchId String
+
+  // Opposite side of Establishment.tickets (named relation)
+  establishment   Establishment @relation("TicketEstablishment", fields: [establishmentId], references: [id])
+  establishmentId String
+
+  // Opposite side of ScanLog.ticket
+  scanLogs ScanLog[]
+
+  usedAt    DateTime?
+  usedById  String?
+  createdAt DateTime  @default(now())
+
+  @@index([studentId])
+  @@index([batchId])
+  @@index([date, meal])
+  @@index([establishmentId])
+}
+
+enum TicketStatus {
+  UNUSED
+  USED
+  REVOKED
+  EXPIRED
+}
+
+model ScanLog {
+  id        String   @id @default(cuid())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id])
+  ticketId  String
+  agentId   String
+  success   Boolean
+  reason    String?
+  scannedAt DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  name               String
+  email              String    @unique
+  passwordHash       String
+  role               Role
+  establishmentId    String?
+  mustChangePassword Boolean   @default(true)
+  passwordChangedAt  DateTime?
+  createdAt          DateTime  @default(now())
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  SCAN_AGENT
+}

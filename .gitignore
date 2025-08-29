@@ -1,0 +1,40 @@
+# Node / JS
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+.build/
+.cache/
+.vite/
+coverage/
+
+# Env & secrets
+.env
+*.env
+backend/.env
+frontend/.env
+
+# Prisma
+backend/node_modules/.prisma/
+backend/prisma/dev.db
+backend/prisma/*.db
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Local backups / dumps
+pg_backups*/
+*.dump
+
+# Puppeteer / Chromium cache
+backend/.local-chromium/
