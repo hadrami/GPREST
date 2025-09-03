@@ -1,100 +1,86 @@
-import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+// frontend/src/redux/slices/studentsSlice.js
+import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import api from "../../lib/api";
 
-// list with pagination / search
-export const fetchStudents = createAsyncThunk("students/fetch", async (params, { rejectWithValue }) => {
-  try {
-    const { page=1, limit=20, search="", establishmentId } = params || {};
-    const { data } = await api.get("/students", {
-      params: { page, limit, search, establishmentId }
-    });
-    return data;
-  } catch (e) {
-    return rejectWithValue(e.response?.data?.message || "Failed to fetch students");
+export const fetchStudents = createAsyncThunk(
+  "students/fetch",
+  async ({ search = "", page = 1, pageSize = 20, establishmentId } = {}, { rejectWithValue }) => {
+    try {
+      const { data } = await api.get("/students", {
+        params: { search, page, pageSize, establishmentId },
+      });
+      return data;
+    } catch (e) {
+      return rejectWithValue(e.response?.data?.message || e.message);
+    }
   }
-});
+);
 
-// CRUD
-export const createStudent = createAsyncThunk("students/create", async (payload, { rejectWithValue }) => {
-  try {
-    const { data } = await api.post("/students", payload);
-    return data;
-  } catch (e) {
-    return rejectWithValue(e.response?.data?.message || "Create failed");
+export const importStudents = createAsyncThunk(
+  "students/import",
+  async (file, { rejectWithValue }) => {
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const { data } = await api.post("/students/import", fd, {
+        headers: { "content-type": "multipart/form-data" },
+      });
+      return data;
+    } catch (e) {
+      return rejectWithValue(e.response?.data?.message || e.message);
+    }
   }
-});
+);
 
-export const updateStudent = createAsyncThunk("students/update", async ({ id, data: body }, { rejectWithValue }) => {
-  try {
-    const { data } = await api.put(`/students/${id}`, body);
-    return data;
-  } catch (e) {
-    return rejectWithValue(e.response?.data?.message || "Update failed");
+export const deleteStudent = createAsyncThunk(
+  "students/delete",
+  async (id, { rejectWithValue }) => {
+    try {
+      const { data } = await api.delete(`/students/${id}`);
+      return { id, ...data };
+    } catch (e) {
+      return rejectWithValue(e.response?.data?.message || e.message);
+    }
   }
-});
-
-export const deleteStudent = createAsyncThunk("students/delete", async (id, { rejectWithValue }) => {
-  try {
-    await api.delete(`/students/${id}`);
-    return id;
-  } catch (e) {
-    return rejectWithValue(e.response?.data?.message || "Delete failed");
-  }
-});
-
-// import Excel
-export const importStudents = createAsyncThunk("students/import", async (file, { rejectWithValue }) => {
-  try {
-    const form = new FormData();
-    form.append("file", file);
-    const { data } = await api.post("/students/import", form, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return data;
-  } catch (e) {
-    return rejectWithValue(e.response?.data?.message || "Import failed");
-  }
-});
+);
 
 const slice = createSlice({
   name: "students",
   initialState: {
     items: [],
-    page: 1,
-    limit: 20,
     total: 0,
+    page: 1,
+    pageSize: 20,
     status: "idle",
     error: null,
-    lastImport: null,
+    importStatus: "idle",
+    importResult: null,
   },
   reducers: {
-    setPage(state, action) { state.page = action.payload; },
-    setLimit(state, action) { state.limit = action.payload; },
+    clearStudentsError(state) { state.error = null; },
   },
   extraReducers: (b) => {
-    b.addCase(fetchStudents.pending, (s)=>{ s.status="loading"; s.error=null; });
-    b.addCase(fetchStudents.fulfilled, (s,a)=>{
-      s.status="succeeded";
-      s.items = a.payload.items;
-      s.page = a.payload.page;
-      s.limit = a.payload.limit;
-      s.total = a.payload.total;
-    });
-    b.addCase(fetchStudents.rejected, (s,a)=>{ s.status="failed"; s.error = a.payload; });
+    b
+      .addCase(fetchStudents.pending, (s) => { s.status = "loading"; s.error = null; })
+      .addCase(fetchStudents.fulfilled, (s, a) => {
+        s.status = "succeeded";
+        s.items = a.payload.items;
+        s.total = a.payload.total;
+        s.page = a.payload.page;
+        s.pageSize = a.payload.pageSize;
+      })
+      .addCase(fetchStudents.rejected, (s, a) => { s.status = "failed"; s.error = a.payload || "Erreur"; })
 
-    b.addCase(createStudent.fulfilled, (s,a)=>{ s.items.unshift(a.payload); s.total += 1; });
-    b.addCase(updateStudent.fulfilled, (s,a)=> {
-      const i = s.items.findIndex(x=>x.id===a.payload.id);
-      if (i>=0) s.items[i] = a.payload;
-    });
-    b.addCase(deleteStudent.fulfilled, (s, a) => {
-      s.items = s.items.filter(x => x.id !== a.payload);
-      s.total = Math.max(0, s.total - 1);
-    });
+      .addCase(importStudents.pending, (s) => { s.importStatus = "loading"; s.importResult = null; s.error = null; })
+      .addCase(importStudents.fulfilled, (s, a) => { s.importStatus = "succeeded"; s.importResult = a.payload; })
+      .addCase(importStudents.rejected, (s, a) => { s.importStatus = "failed"; s.error = a.payload || "Erreur"; })
 
-    b.addCase(importStudents.fulfilled, (s,a)=>{ s.lastImport = a.payload; });
-  }
+      .addCase(deleteStudent.fulfilled, (s, a) => {
+        s.items = s.items.filter((x) => x.id !== a.payload.id);
+        s.total = Math.max(0, s.total - 1);
+      });
+  },
 });
 
-export const { setPage, setLimit } = slice.actions;
+export const { clearStudentsError } = slice.actions;
 export default slice.reducer;

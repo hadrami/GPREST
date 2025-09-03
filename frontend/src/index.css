@@ -1,1 +1,25 @@
 @import "tailwindcss";
+
+/* v4 design tokens */
+@theme {
+  --color-primary:        #40916c;
+  --color-primary-dark:   #2d6a4f;
+  --color-primary-light:  #52b788;
+
+  --color-cream:        #FFFBEA;  /* soft cream card */
+  --color-cream-border: #EDE9D5;  /* subtle border */
+
+  --color-secondary:      #ffff3f; /* ← your yellow */
+  --color-accent:         #90e0ef;
+  --color-accent-dark:    #00b4d8;
+
+  --shadow-soft: 0 8px 24px rgba(0,0,0,0.08);
+}
+
+/* small utility for soft shadow */
+@utility shadow-soft { box-shadow: var(--shadow-soft); }
+
+/* Global app: WHITE background everywhere */
+@layer base {
+  html, body, #root { @apply min-h-dvh bg-white text-slate-900 antialiased; }
+}

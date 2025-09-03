@@ -1,12 +1,13 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import api from "../../lib/api";
 
-export const login = createAsyncThunk("auth/login", async (payload, { rejectWithValue }) => {
+// Async thunks
+export const login = createAsyncThunk("auth/login", async ({ email, password }, { rejectWithValue }) => {
   try {
-    const { data } = await api.post("/auth/login", payload);
+    const { data } = await api.post("/auth/login", { email, password });
     return data;
   } catch (e) {
-    return rejectWithValue(e.response?.data?.message || "Login failed");
+    return rejectWithValue(e?.response?.data?.message || "Login failed");
   }
 });
 
@@ -15,16 +16,16 @@ export const me = createAsyncThunk("auth/me", async (_, { rejectWithValue }) => 
     const { data } = await api.get("/auth/me");
     return data;
   } catch (e) {
-    return rejectWithValue(e.response?.data?.message || "Fetch user failed");
+    return rejectWithValue(e?.response?.data?.message || "Fetch user failed");
   }
 });
 
 export const changePassword = createAsyncThunk("auth/changePassword", async (payload, { rejectWithValue }) => {
   try {
     const { data } = await api.post("/auth/change-password", payload);
-    return data;
+  return data;
   } catch (e) {
-    return rejectWithValue(e.response?.data?.message || "Change password failed");
+    return rejectWithValue(e?.response?.data?.message || "Change password failed");
   }
 });
 
@@ -36,7 +37,7 @@ const slice = createSlice({
     token: tokenInit || null,
     user: null,
     requiresPasswordChange: false,
-    status: "idle",
+    status: "idle",   // "idle" | "loading" | "succeeded" | "failed"
     error: null,
   },
   reducers: {
@@ -49,34 +50,38 @@ const slice = createSlice({
     setToken(state, action) {
       state.token = action.payload;
       localStorage.setItem("token", action.payload);
-    }
+    },
+    clearError(state) {
+      state.error = null;
+      if (state.status === "failed") state.status = "idle";
+    },
   },
   extraReducers: (b) => {
-    b.addCase(login.pending, (s)=>{ s.status="loading"; s.error=null; });
-    b.addCase(login.fulfilled, (s, a)=>{
-      s.status="succeeded";
+    b.addCase(login.pending, (s) => { s.status = "loading"; s.error = null; });
+    b.addCase(login.fulfilled, (s, a) => {
+      s.status = "succeeded";
       s.token = a.payload.token;
       s.user = a.payload.user;
       s.requiresPasswordChange = !!a.payload.requiresPasswordChange;
       localStorage.setItem("token", s.token);
     });
-    b.addCase(login.rejected, (s, a)=>{ s.status="failed"; s.error = a.payload; });
+    b.addCase(login.rejected, (s, a) => { s.status = "failed"; s.error = a.payload; });
 
-    b.addCase(me.fulfilled, (s,a)=>{
+    b.addCase(me.fulfilled, (s, a) => {
       s.user = a.payload;
       s.requiresPasswordChange = !!a.payload.mustChangePassword;
     });
 
-    b.addCase(changePassword.pending, (s)=>{ s.status="loading"; s.error=null; });
-    b.addCase(changePassword.fulfilled, (s,a)=>{
-      s.status="succeeded";
+    b.addCase(changePassword.pending, (s) => { s.status = "loading"; s.error = null; });
+    b.addCase(changePassword.fulfilled, (s, a) => {
+      s.status = "succeeded";
       s.token = a.payload.token;
       s.requiresPasswordChange = false;
       localStorage.setItem("token", s.token);
     });
-    b.addCase(changePassword.rejected, (s,a)=>{ s.status="failed"; s.error = a.payload; });
-  }
+    b.addCase(changePassword.rejected, (s, a) => { s.status = "failed"; s.error = a.payload; });
+  },
 });
 
-export const { logout, setToken } = slice.actions;
+export const { logout, setToken, clearError } = slice.actions;
 export default slice.reducer;

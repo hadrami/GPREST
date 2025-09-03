@@ -1,18 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
+import tailwind from '@tailwindcss/vite'
 
-// Back-end on 3000; proxy avoids CORS during `npm run dev`
+// Expose dev server on LAN and proxy /api → backend
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwind()],
   server: {
+    host: true,           // <— so your phone can open it via http://<PC-IP>:5173
     port: 5173,
     proxy: {
-      '/auth': 'http://localhost:3000',
-      '/students': 'http://localhost:3000',
-      '/batches': 'http://localhost:3000',
-      '/tickets': 'http://localhost:3000',
-      '/reports': 'http://localhost:3000',
-    }
-  }
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
 })

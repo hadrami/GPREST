@@ -1,211 +1,229 @@
-// src/routes/students.js
-import xlsx from "xlsx";
+// backend/src/routes/students.js
+import * as XLSX from "xlsx";
+import fs from "fs/promises";
+import path from "path";
 
-/**
- * Students routes
- * Prefix expected in index.js: app.register(studentsRoutes, { prefix: "/students" })
- *
- * Endpoints:
- *  GET    /              -> list (pagination + search)
- *  GET    /:id           -> get one
- *  POST   /              -> create one
- *  PUT    /:id           -> update one
- *  DELETE /:id           -> delete one
- *  POST   /import        -> import from Excel (.xlsx/.csv) [multipart field: "file"]
- */
-export default async function studentsRoutes(fastify) {
+export default async function routes(fastify) {
   const { prisma } = fastify;
 
-  // Helpers
-  const toInt = (v, def) => {
-    const n = parseInt(v, 10);
-    return Number.isFinite(n) ? n : def;
-  };
+  // multipart (safe si déjà enregistré ailleurs)
+  try {
+    const multipart = await import("@fastify/multipart");
+    await fastify.register(multipart.default, { limits: { fileSize: 20 * 1024 * 1024 } });
+  } catch (_) {}
 
-  // GET /?page=&limit=&search=&establishmentId=
-  fastify.get("/", { preHandler: [fastify.auth] }, async (req) => {
-    const page = Math.max(1, toInt(req.query.page, 1));
-    const limit = Math.min(100, Math.max(1, toInt(req.query.limit, 20)));
-    const skip = (page - 1) * limit;
+  const isAdmin = (req) => req.user?.role === "ADMIN";
 
-    const where = {};
-    const search = (req.query.search || "").trim();
-    if (search) {
-      where.OR = [
-        { matricule: { contains: search, mode: "insensitive" } },
-        { nom: { contains: search, mode: "insensitive" } },
-        { prenom: { contains: search, mode: "insensitive" } },
-      ];
+  // Filtre d’étendue : un non-admin est restreint à son établissement
+  const scopeFilter = (req) =>
+    isAdmin(req)
+      ? {}
+      : (req.user?.establishmentId ? { etablissementId: req.user.establishmentId } : { id: "__none__" });
+
+  // --- Normalisation stricte en FR (accepte accents/variantes)
+  function normalizeRow(row) {
+    const pick = (...keys) => {
+      for (const k of keys) if (row[k] != null && row[k] !== "") return String(row[k]).trim();
+      return "";
+    };
+
+    const matricule = pick("Matricule", "matricule", "Code");
+    const nom = pick("Nom", "nom");
+    const prenom = pick("Prénom", "Prenom", "prénom", "prenom");
+    const nomComplet = pick("Nom complet", "Nom Complet", "Nomcomplet");
+    const etab = pick("Établissement", "Etablissement", "etablissement", "établissement");
+    const email = pick("Email", "email");
+
+    const name = nomComplet || [prenom, nom].filter(Boolean).join(" ").trim() || nom;
+
+    return { matricule, name, etab, email: email || null };
+  }
+
+  // Upsert étudiant à partir d’une ligne Excel
+  async function upsertStudent(row, req) {
+    const { matricule, name, etab, email } = normalizeRow(row);
+    if (!matricule || !name) return { skipped: true, reason: "matricule/nom manquant" };
+
+    // Déterminer etablissementId
+    let etablissementId = null;
+    if (isAdmin(req)) {
+      if (etab) {
+        const est = await prisma.establishment.upsert({
+          where: { name: etab },
+          update: {},
+          create: { name: etab },
+          select: { id: true },
+        });
+        etablissementId = est.id;
+      }
+    } else {
+      etablissementId = req.user?.establishmentId ?? null;
     }
-    if (req.query.establishmentId) {
-      where.etablissementId = req.query.establishmentId;
+
+    const existing = await prisma.student.findUnique({ where: { matricule }, select: { id: true } });
+
+    if (existing) {
+      await prisma.student.update({
+        where: { matricule },
+        data: { name, email, etablissementId: etablissementId ?? undefined },
+      });
+      return { updated: 1 };
+    } else {
+      await prisma.student.create({
+        data: { matricule, name, email, etablissementId },
+      });
+      return { created: 1 };
     }
+  }
 
-    const [items, total] = await Promise.all([
-      prisma.student.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: "desc" },
-        include: { etablissement: true },
-      }),
-      prisma.student.count({ where }),
-    ]);
+  async function importBuffer(buf, req) {
+    const wb = XLSX.read(buf);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
-    return { page, limit, total, items };
-  });
-
-  // GET /:id
-  fastify.get("/:id", { preHandler: [fastify.auth] }, async (req, reply) => {
-    const s = await prisma.student.findUnique({
-      where: { id: req.params.id },
-      include: { etablissement: true },
+    let created = 0, updated = 0, skipped = 0;
+    await prisma.$transaction(async () => {
+      for (const r of rows) {
+        const res = await upsertStudent(r, req);
+        if (res?.created) created += res.created;
+        else if (res?.updated) updated += res.updated;
+        else skipped += 1;
+      }
     });
-    if (!s) return reply.code(404).send({ message: "Student not found" });
-    return s;
+
+    return { rows: rows.length, created, updated, skipped };
+  }
+
+  // -------- LIST
+  fastify.get("/", { preHandler: [fastify.auth] }, async (req, reply) => {
+    try {
+      const { search = "", page = 1, pageSize = 20 } = req.query ?? {};
+      const estIdFilter = req.query.etablissementId ?? req.query.establishmentId;
+
+      const where = {
+        ...scopeFilter(req),
+        ...(estIdFilter ? { etablissementId: estIdFilter } : {}),
+        ...(search
+          ? {
+              OR: [
+                { name: { contains: search, mode: "insensitive" } },
+                { matricule: { contains: search, mode: "insensitive" } },
+                { email: { contains: search, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      };
+
+      const take = Math.max(1, Number(pageSize));
+      const skip = (Math.max(1, Number(page)) - 1) * take;
+
+      const [items, total] = await Promise.all([
+        prisma.student.findMany({
+          where,
+          orderBy: [{ createdAt: "desc" }],
+          include: { etablissement: true }, // ← IMPORTANT (selon ton schéma)
+          skip,
+          take,
+        }),
+        prisma.student.count({ where }),
+      ]);
+
+      return { items, total, page: Number(page), pageSize: take };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(500).send({ message: "Erreur serveur lors du listing des étudiants." });
+    }
   });
 
-  // POST /  { matricule, nom, prenom, establishmentId? , establishmentName? , active? }
+  // -------- CREATE
   fastify.post("/", { preHandler: [fastify.auth] }, async (req, reply) => {
-    const { matricule, nom, prenom, establishmentId, establishmentName, active = true } = req.body || {};
-    if (!matricule || !nom || !prenom || (!establishmentId && !establishmentName)) {
-      return reply.code(400).send({ message: "Missing required fields" });
-    }
+    const { matricule, name, email, etablissementId, establishmentId } = req.body ?? {};
+    if (!matricule || !name) return reply.code(400).send({ message: "matricule et nom requis" });
 
-    let etabId = establishmentId;
-    if (!etabId) {
-      const name = String(establishmentName).trim();
-      const etab = await prisma.establishment.upsert({
-        where: { name },
-        update: {},
-        create: { name },
-      });
-      etabId = etab.id;
-    }
+    let estId = isAdmin(req) ? (etablissementId ?? establishmentId ?? null) : (req.user?.establishmentId ?? null);
 
-    const student = await prisma.student.create({
-      data: { matricule: String(matricule).trim(), nom, prenom, etablissementId: etabId, active: !!active },
+    const created = await prisma.student.create({
+      data: { matricule, name, email: email || null, etablissementId: estId },
     });
-    return reply.code(201).send(student);
+    return created;
   });
 
-  // PUT /:id
+  // -------- UPDATE
   fastify.put("/:id", { preHandler: [fastify.auth] }, async (req, reply) => {
-    const { matricule, nom, prenom, establishmentId, establishmentName, active } = req.body || {};
-    const data = {};
-    if (matricule) data.matricule = String(matricule).trim();
-    if (nom) data.nom = nom;
-    if (prenom) data.prenom = prenom;
-    if (typeof active === "boolean") data.active = active;
+    const { id } = req.params;
+    const { name, email, etablissementId, establishmentId } = req.body ?? {};
 
-    if (establishmentId) {
-      data.etablissementId = establishmentId;
-    } else if (establishmentName) {
-      const name = String(establishmentName).trim();
-      const etab = await prisma.establishment.upsert({
-        where: { name },
-        update: {},
-        create: { name },
-      });
-      data.etablissementId = etab.id;
+    // Check scope pour non-admin
+    if (!isAdmin(req)) {
+      const s = await prisma.student.findUnique({ where: { id } });
+      if (!s || s.etablissementId !== req.user.establishmentId) {
+        return reply.code(403).send({ message: "Interdit" });
+      }
     }
 
-    try {
-      const updated = await prisma.student.update({
-        where: { id: req.params.id },
-        data,
-      });
-      return updated;
-    } catch {
-      return reply.code(404).send({ message: "Student not found" });
-    }
+    const data = {
+      name: name ?? undefined,
+      email: email ?? undefined,
+      etablissementId: isAdmin(req) ? (etablissementId ?? establishmentId ?? undefined) : undefined,
+    };
+
+    const updated = await prisma.student.update({ where: { id }, data });
+    return updated;
   });
 
-  // DELETE /:id
+  // -------- DELETE
   fastify.delete("/:id", { preHandler: [fastify.auth] }, async (req, reply) => {
-    try {
-      await prisma.student.delete({ where: { id: req.params.id } });
-      return reply.code(204).send();
-    } catch {
-      return reply.code(404).send({ message: "Student not found" });
+    const { id } = req.params;
+
+    if (!isAdmin(req)) {
+      const s = await prisma.student.findUnique({ where: { id } });
+      if (!s || s.etablissementId !== req.user.establishmentId) {
+        return reply.code(403).send({ message: "Interdit" });
+      }
     }
+
+    await prisma.student.delete({ where: { id } });
+    return { ok: true };
   });
 
-  // POST /import  (multipart: file = .xlsx/.csv)
+  // -------- TEMPLATE XLSX (FR)
+  fastify.get("/template", { preHandler: [fastify.auth] }, async (req, reply) => {
+    const rows = [
+      { Matricule: "S0001", Nom: "Diop", "Prénom": "Awa", Établissement: "Institut A", Email: "awa.diop@example.com" },
+      { Matricule: "S0002", Nom: "Ba",   "Prénom": "Moussa", Établissement: "Institut B", Email: "moussa.ba@example.com" },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Étudiants");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    reply.header("content-disposition", 'attachment; filename="modele_etudiants.xlsx"');
+    reply.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    return reply.send(buf);
+  });
+
+  // -------- IMPORT : un seul fichier
   fastify.post("/import", { preHandler: [fastify.auth] }, async (req, reply) => {
     const file = await req.file();
-    if (!file) return reply.code(400).send({ message: "No file uploaded (field name should be 'file')." });
-
+    if (!file) return reply.code(400).send({ message: "file requis" });
     const buf = await file.toBuffer();
-    let rows = [];
-    try {
-      const wb = xlsx.read(buf, { type: "buffer" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      rows = xlsx.utils.sheet_to_json(ws, { defval: "" });
-    } catch {
-      return reply.code(400).send({ message: "Unsupported file or malformed spreadsheet." });
+    const res = await importBuffer(buf, req);
+    return { ok: true, ...res };
+  });
+
+  // -------- IMPORT depuis un dossier sur le serveur
+  fastify.post("/import-from-folder", { preHandler: [fastify.auth] }, async (req, reply) => {
+    const base = process.env.IMPORT_DIR;
+    if (!base) return reply.code(400).send({ message: "Définissez IMPORT_DIR dans .env" });
+
+    const files = (await fs.readdir(base)).filter((f) => f.toLowerCase().endsWith(".xlsx"));
+    let total = 0, created = 0, updated = 0, skipped = 0;
+
+    for (const name of files) {
+      const buf = await fs.readFile(path.join(base, name));
+      const r = await importBuffer(buf, req);
+      total += r.rows; created += r.created; updated += r.updated; skipped += r.skipped;
     }
 
-    // Normalize keys to lowercase for flexible column names
-    const norm = (row) =>
-      Object.fromEntries(Object.entries(row).map(([k, v]) => [String(k).trim().toLowerCase(), v]));
-
-    const etabCache = new Map(); // name -> id
-    let created = 0;
-    let updated = 0;
-    let etabCreated = 0;
-    const errors = [];
-
-    for (let i = 0; i < rows.length; i++) {
-      const r = norm(rows[i]);
-
-      const matricule = String(r.matricule || r["matricule "] || r["nni"] || "").trim();
-      const nom = String(r.nom || r["nom "] || "").trim();
-      const prenom = String(r.prenom || r["prénom"] || r["prenom "] || "").trim();
-      const etabName = String(r.etablissement || r["établissement"] || r["etablissement "] || "").trim();
-
-      if (!matricule || !nom || !prenom || !etabName) {
-        errors.push({ row: i + 2, reason: "Missing required columns (matricule, nom, prenom, etablissement)" });
-        continue;
-      }
-
-      let etabId;
-      if (etabCache.has(etabName)) {
-        etabId = etabCache.get(etabName);
-      } else {
-        const before = await prisma.establishment.findUnique({ where: { name: etabName } });
-        if (before) {
-          etabId = before.id;
-        } else {
-          const e = await prisma.establishment.create({ data: { name: etabName } });
-          etabCreated++;
-          etabId = e.id;
-        }
-        etabCache.set(etabName, etabId);
-      }
-
-      const existing = await prisma.student.findUnique({ where: { matricule } });
-      if (existing) {
-        await prisma.student.update({
-          where: { id: existing.id },
-          data: { nom, prenom, etablissementId: etabId, active: true },
-        });
-        updated++;
-      } else {
-        await prisma.student.create({
-          data: { matricule, nom, prenom, etablissementId: etabId, active: true },
-        });
-        created++;
-      }
-    }
-
-    return {
-      ok: true,
-      rows: rows.length,
-      created,
-      updated,
-      establishmentsCreated: etabCreated,
-      errors, // array of {row, reason}
-    };
+    return { ok: true, files: files.length, rows: total, created, updated, skipped };
   });
 }

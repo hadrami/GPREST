@@ -1,90 +1,55 @@
-import React from "react";
+import React, { Component } from "react";
 import ReactDOM from "react-dom/client";
 import { Provider } from "react-redux";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { store } from "./redux/store";
+import { BrowserRouter } from "react-router-dom";
+import App from "./App.jsx";
+import store from "./redux/store.js";
 import "./index.css";
 
-import App from "./App";
-import Login from "./pages/Login";
-import ForcePasswordChange from "./pages/ForcePasswordChange"; 
-import Dashboard from "./pages/Dashboard";
-import StudentsList from "./Students/List";
-import StudentsImport from "./Students/Import";
-import StudentForm from "./Students/Form";
-import Scanner from "./pages/Scanner";
-import ReportsSummary from "./Reports/Summary";
-import ProtectedRoute from "./components/ProtectedRoute";
+console.log("[main.jsx] starting");
 
-ReactDOM.createRoot(document.getElementById("root")).render(
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error("[ErrorBoundary] caught:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 16 }}>
+          <h1>💥 Frontend crashed</h1>
+          <pre style={{ whiteSpace: "pre-wrap" }}>
+            {String(this.state.error)}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const root = document.getElementById("root");
+if (!root) {
+  document.body.innerHTML = "<h1>Missing #root element</h1>";
+  throw new Error("Missing #root in index.html");
+}
+
+ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <Provider store={store}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/force-password-change" element={<ForcePasswordChange />} />
-
-          <Route path="/" element={<App />}>
-            <Route
-              index
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="students"
-              element={
-                <ProtectedRoute>
-                  <StudentsList />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="students/import"
-              element={
-                <ProtectedRoute>
-                  <StudentsImport />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="students/new"
-              element={
-                <ProtectedRoute>
-                  <StudentForm />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="students/:id"
-              element={
-                <ProtectedRoute>
-                  <StudentForm />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="scanner"
-              element={
-                <ProtectedRoute roles={['SCAN_AGENT','ADMIN','MANAGER']}>
-                  <Scanner />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="reports/summary"
-              element={
-                <ProtectedRoute roles={['ADMIN','MANAGER']}>
-                  <ReportsSummary />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </Provider>
+    <ErrorBoundary>
+      <Provider store={store}>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </Provider>
+    </ErrorBoundary>
   </React.StrictMode>
 );
+
+console.log("[main.jsx] rendered");

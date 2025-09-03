@@ -1,90 +1,85 @@
+// frontend/src/Students/List.jsx
 import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { fetchStudents, deleteStudent, setPage, setLimit } from "../redux/slices/studentsSlice";
-import { Link } from "react-router-dom";
+import { deleteStudent, fetchStudents } from "../redux/slices/studentsSlice";
 
 export default function StudentsList() {
   const d = useDispatch();
-  const { items, page, limit, total, status, error } = useSelector(s=>s.students);
-  const [search, setSearch] = useState("");
+  const { items, total, page, pageSize, status, error } = useSelector((s) => s.students);
+  const [q, setQ] = useState("");
 
-  useEffect(() => {
-    d(fetchStudents({ page, limit, search }));
-  }, [d, page, limit, search]
-);
+  useEffect(() => { d(fetchStudents({ page: 1, pageSize })); }, [d, pageSize]);
 
-  const onSearch = (e) => {
+  const search = (e) => {
     e.preventDefault();
-    d(fetchStudents({ page: 1, limit, search }));
+    d(fetchStudents({ search: q, page: 1, pageSize }));
   };
 
-  const remove = async (id) => {
-    if (confirm("Delete this student?")) {
-      await d(deleteStudent(id));
-      d(fetchStudents({ page, limit, search }));
-    }
-  };
+  const next = () => d(fetchStudents({ search: q, page: page + 1, pageSize }));
+  const prev = () => d(fetchStudents({ search: q, page: Math.max(1, page - 1), pageSize }));
 
   return (
-    <div className="bg-white border rounded-xl p-4 shadow">
-      <div className="flex items-center justify-between mb-3">
-        <h1 className="text-lg font-semibold">Students</h1>
-        <div className="flex gap-2">
-          <Link to="/students/new" className="px-3 py-2 rounded bg-blue-600 text-white">New</Link>
-          <Link to="/students/import" className="px-3 py-2 rounded bg-emerald-600 text-white">Import</Link>
-        </div>
-      </div>
-
-      <form onSubmit={onSearch} className="flex gap-2 mb-3">
-        <input className="border rounded px-3 py-2 flex-1" placeholder="Search matricule/nom/prenom"
-               value={search} onChange={e=>setSearch(e.target.value)} />
-        <button className="px-3 py-2 rounded bg-slate-800 text-white">Search</button>
+    <div className="space-y-4">
+      <form onSubmit={search} className="flex flex-col sm:flex-row gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Rechercher par nom / matricule / email"
+          className="flex-1 px-3 py-2 rounded-md border border-accent/30 focus:outline-none focus:ring-2 focus:ring-accent"
+        />
+        <button className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary-dark">Rechercher</button>
       </form>
 
-      {status==="loading" && <div>Loading...</div>}
-      {error && <div className="text-red-600">{error}</div>}
+      {error && <div className="text-red-700 bg-red-50 border border-red-300 rounded p-2">{error}</div>}
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-xl border border-accent/40">
         <table className="min-w-full text-sm">
-          <thead className="bg-slate-100">
-            <tr>
-              <th className="text-left p-2">Matricule</th>
-              <th className="text-left p-2">Nom</th>
-              <th className="text-left p-2">Prénom</th>
-              <th className="text-left p-2">Etablissement</th>
-              <th className="text-left p-2">Actions</th>
+          <thead className="bg-secondary">
+            <tr className="text-left">
+              <th className="px-3 py-2">Matricule</th>
+              <th className="px-3 py-2">Nom</th>
+              <th className="px-3 py-2">Email</th>
+              <th className="px-3 py-2">Etablissement</th>
+              <th className="px-3 py-2 w-24">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.map(s => (
-              <tr key={s.id} className="border-b">
-                <td className="p-2 font-mono">{s.matricule}</td>
-                <td className="p-2">{s.nom}</td>
-                <td className="p-2">{s.prenom}</td>
-                <td className="p-2">{s.etablissement?.name || "-"}</td>
-                <td className="p-2">
-                  <Link to={`/students/${s.id}`} className="text-blue-600 mr-3">Edit</Link>
-                  <button className="text-red-600" onClick={()=>remove(s.id)}>Delete</button>
+            {status === "loading" && (
+              <tr><td className="px-3 py-3" colSpan={5}>Chargement…</td></tr>
+            )}
+            {status !== "loading" && items.length === 0 && (
+              <tr><td className="px-3 py-3" colSpan={5}>Aucun étudiant</td></tr>
+            )}
+            {items.map((s) => (
+              <tr key={s.id} className="border-t">
+                <td className="px-3 py-2">{s.matricule}</td>
+                <td className="px-3 py-2">{s.name}</td>
+                <td className="px-3 py-2">{s.email ?? "—"}</td>             
+                <td className="px-3 py-2">{s.etablissement?.name ?? "—"}</td>
+
+                <td className="px-3 py-2">
+                  <button
+                    onClick={() => d(deleteStudent(s.id))}
+                    className="text-red-600 hover:text-red-800"
+                    title="Supprimer"
+                  >
+                    Supprimer
+                  </button>
                 </td>
               </tr>
             ))}
-            {items.length === 0 && status!=="loading" && (
-              <tr><td className="p-3 text-slate-500" colSpan={5}>No students</td></tr>
-            )}
           </tbody>
         </table>
       </div>
 
-      <div className="flex items-center justify-between mt-3">
-        <div className="text-sm text-slate-600">
-          Page {page} · {total} total
-        </div>
-        <div className="flex items-center gap-2">
-          <select className="border rounded px-2 py-1" value={limit} onChange={e=>d(setLimit(Number(e.target.value)))}>
-            {[10,20,50,100].map(n=> <option key={n} value={n}>{n}/page</option>)}
-          </select>
-          <button className="px-2 py-1 border rounded" disabled={page<=1} onClick={()=>d(setPage(page-1))}>Prev</button>
-          <button className="px-2 py-1 border rounded" disabled={(page*limit)>=total} onClick={()=>d(setPage(page+1))}>Next</button>
+      <div className="flex items-center justify-between text-sm">
+        <span>Total: {total}</span>
+        <div className="flex gap-2">
+          <button onClick={prev} disabled={page <= 1}
+                  className="px-3 py-1 rounded-md border disabled:opacity-50">Préc.</button>
+          <span>Page {page}</span>
+          <button onClick={next} disabled={page * pageSize >= total}
+                  className="px-3 py-1 rounded-md border disabled:opacity-50">Suiv.</button>
         </div>
       </div>
     </div>

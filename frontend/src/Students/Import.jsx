@@ -1,56 +1,68 @@
+// frontend/src/Students/Import.jsx
 import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { importStudents } from "../redux/slices/studentsSlice";
 
 export default function StudentsImport() {
   const d = useDispatch();
-  const { lastImport } = useSelector(s=>s.students);
+  const { importStatus, importResult, error } = useSelector((s) => s.students);
   const [file, setFile] = useState(null);
-  const [status, setStatus] = useState("idle");
-  const [error, setError] = useState(null);
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!file) return setError("Choose a .xlsx or .csv file");
-    setError(null);
-    setStatus("loading");
-    const res = await d(importStudents(file));
-    setStatus(res.meta.requestStatus);
+    if (!file) return;
+    await d(importStudents(file));
+  };
+
+  const downloadTemplate = () => {
+    // open in same origin (Vite proxy will forward to backend)
+    window.open("/api/students/template", "_blank");
   };
 
   return (
-    <div className="bg-white border rounded-xl p-4 shadow max-w-xl">
-      <h1 className="text-lg font-semibold mb-3">Import students</h1>
-      <form onSubmit={submit} className="space-y-3">
-        <input type="file" accept=".xlsx,.xls,.csv" onChange={e=>setFile(e.target.files?.[0] || null)} />
-        {error && <div className="text-red-600 text-sm">{error}</div>}
-        <button disabled={status==="loading"} className="px-3 py-2 rounded bg-emerald-600 text-white">
-          {status==="loading" ? "Importing..." : "Import"}
-        </button>
-      </form>
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-accent/40 p-4 bg-white">
+        <h2 className="text-lg font-semibold text-primary mb-2">Importer des étudiants (Excel)</h2>
 
-      {lastImport && (
-        <div className="mt-4 text-sm">
-          <div className="font-semibold">Result</div>
-          <ul className="list-disc list-inside text-slate-700">
-            <li>Rows: {lastImport.rows}</li>
-            <li>Created: {lastImport.created}</li>
-            <li>Updated: {lastImport.updated}</li>
-            <li>Establishments created: {lastImport.establishmentsCreated}</li>
-          </ul>
-          {lastImport.errors?.length > 0 && (
-            <div className="mt-2">
-              <div className="font-semibold">Errors</div>
-              <ul className="text-red-600 list-disc list-inside">
-                {lastImport.errors.slice(0,10).map((e,i)=>(
-                  <li key={i}>Row {e.row}: {e.reason}</li>
-                ))}
-                {lastImport.errors.length > 10 && <li>…and more</li>}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
+        {error && <div className="text-red-700 bg-red-50 border border-red-300 rounded p-2 mb-2">{error}</div>}
+
+        <form onSubmit={submit} className="flex flex-col sm:flex-row items-start gap-3">
+          <input
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="block"
+          />
+          <button
+            type="submit"
+            disabled={!file || importStatus === "loading"}
+            className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary-dark disabled:opacity-50"
+          >
+            {importStatus === "loading" ? "Import…" : "Importer"}
+          </button>
+
+          <button
+            type="button"
+            onClick={downloadTemplate}
+            className="px-4 py-2 rounded-lg border border-accent/50 hover:bg-secondary"
+          >
+            Télécharger le modèle
+          </button>
+        </form>
+
+        {importResult && (
+          <div className="mt-3 text-sm bg-secondary/40 border border-accent/50 rounded p-2">
+            Import terminé — lignes: <b>{importResult.rows}</b>,
+            créés: <b>{importResult.created}</b>,
+            mis à jour: <b>{importResult.updated}</b>,
+            ignorés: <b>{importResult.skipped}</b>.
+          </div>
+        )}
+      </div>
+
+      <div className="text-sm text-slate-600">
+        <p>Le fichier doit contenir les colonnes: <b>Matricule</b>, <b>Nom</b>, <b>Prénom</b> (ou <b>Nom complet</b>), <b>Etablissement</b> (si vous êtes ADMIN), et <b>Email</b> (optionnel).</p>
+      </div>
     </div>
   );
 }

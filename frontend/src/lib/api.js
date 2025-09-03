@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // During dev, vite proxy forwards /auth, /students, etc. to backend:3000
-const api = axios.create({ baseURL: "/" });
+const api = axios.create({ baseURL: "/api" });
 
 api.interceptors.request.use((cfg) => {
   const t = localStorage.getItem("token");
