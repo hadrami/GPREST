@@ -9,16 +9,33 @@ Local web app to manage meal tickets across multiple establishments (students, w
 ## Dev Setup
 
 ### Backend
-/n
-cd backend /n
+
+cd backend 
 
 
 cp .env.example .env   # put real values
+
+
 npm i
+
+
 npx prisma generate
+
+
 npx prisma migrate deploy   # or: npx prisma db push (dev)
+
+
+
 npm run dev
+
+
+
 ---### Frontend
+
+
+
 cd frontend
+
+
 npm i
 npm run dev
