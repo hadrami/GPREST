@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
-import { login, clearError } from "../../redux/slices/authSlice";
+import { login } from "../../redux/slices/authSlice";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -22,8 +22,12 @@ export default function Login() {
 
   const submit = async (e) => {
     e.preventDefault();
-    d(clearError());
-    await d(login({ email, password }));
+    // submit handler
+d(login({ email, password }))
+.unwrap()
+.then(() => nav("/"))
+.catch(() => {/* slice already has error */});
+
   };
 
   return (

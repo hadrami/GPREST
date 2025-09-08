@@ -47,9 +47,19 @@ await app.register(authRoutes, { prefix: "/auth" });
 // Health
 app.get("/health", async () => ({ ok: true }));
 
+// after jwt + auth plugin + prisma decoration
+import establishmentsRoutes from "./src/routes/establissments.js";
+await app.register(establishmentsRoutes, { prefix: "/api/establishments" });
+
 import studentsRoutes from "./src/routes/students.js";
 await app.register(studentsRoutes, { prefix: "/api/students" });
 
+import reportsRoutes from "./src/routes/reports.js";
+await app.register(reportsRoutes, { prefix: "/api/reports" });
+
+
+import ticketsRoutes from "./src/routes/tickets.js";
+await app.register(ticketsRoutes, { prefix: "/api/tickets" });
 
 // 7) Print routes (handy while wiring mobile)
 app.ready(() => {

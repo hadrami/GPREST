@@ -6,6 +6,8 @@ import AuthLayout from "./layouts/AuthLayout.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 import StudentsList from "./Students/List.jsx";
 import StudentsImport from "./Students/Import.jsx";
+import TicketsGenerate from "./Tickets/Generate.jsx";
+
 
 import Login from "./pages/auth/Login.jsx";
 import ForcePasswordChange from "./pages/auth/ForcePasswordChange.jsx";
@@ -69,6 +71,8 @@ export default function App() {
         <Route path="/scanner" element={<Scanner />} />
         <Route path="/students" element={<StudentsList />} />
         <Route path="/students/import" element={<StudentsImport />} />
+        <Route path="/tickets/generate" element={<TicketsGenerate />} />
+
         {/* add more protected routes here */}
       </Route>
 

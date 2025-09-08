@@ -1,7 +1,10 @@
 // frontend/src/Students/Import.jsx
 import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { importStudents } from "../redux/slices/studentsSlice";
+import { importStudents } from "../redux/slices/studentsSlice";  
+import { apiDownloadTpl } from "../lib/students.api";
+
+
 
 export default function StudentsImport() {
   const d = useDispatch();
@@ -14,10 +17,15 @@ export default function StudentsImport() {
     await d(importStudents(file));
   };
 
-  const downloadTemplate = () => {
-    // open in same origin (Vite proxy will forward to backend)
-    window.open("/api/students/template", "_blank");
-  };
+   // inside Students/Import.jsx
+const downloadTemplate = async () => {
+  const { data } = await apiDownloadTpl();   // axios instance → Authorization included
+  const url = URL.createObjectURL(new Blob([data]));
+  const a = document.createElement("a");
+  a.href = url; a.download = "modele_etudiants.xlsx"; a.click();
+  URL.revokeObjectURL(url);
+};
+
 
   return (
     <div className="space-y-4">

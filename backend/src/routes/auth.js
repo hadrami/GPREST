@@ -19,6 +19,7 @@ export default async function routes(fastify) {
       mustChangePassword: user.mustChangePassword
     };
     const token = fastify.jwt.sign(payload, { expiresIn: "8h" });
+    console.log("Toekn **************:", token)
 
     return {
       token,

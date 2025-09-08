@@ -1,7 +1,9 @@
 import axios from "axios";
+// Dev: leave VITE_API_URL empty → use Vite proxy.
+// Prod/phone: VITE_API_URL=http://<PC-LAN-IP>:3000 (NO trailing /api)
+const origin = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+const api = axios.create({ baseURL: origin });
 
-// During dev, vite proxy forwards /auth, /students, etc. to backend:3000
-const api = axios.create({ baseURL: "/api" });
 
 api.interceptors.request.use((cfg) => {
   const t = localStorage.getItem("token");
