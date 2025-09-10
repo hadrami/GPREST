@@ -1,76 +1,97 @@
-// frontend/src/Students/Import.jsx
-import React, { useState } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import { importStudents } from "../redux/slices/studentsSlice";  
-import { apiDownloadTpl } from "../lib/students.api";
-
-
+// src/Students/Import.jsx
+import React, { useMemo, useState } from "react";
+import  api  from "../lib/api";
 
 export default function StudentsImport() {
-  const d = useDispatch();
-  const { importStatus, importResult, error } = useSelector((s) => s.students);
   const [file, setFile] = useState(null);
+  const [kind, setKind] = useState("student"); // or 'staff'
+  const [status, setStatus] = useState("idle");
+  const [error, setError] = useState(null);
+  const [summary, setSummary] = useState(null);
 
-  const submit = async (e) => {
+  const canImport = useMemo(() => !!file, [file]);
+  const disabled = status === "loading";
+
+  const onSubmit = async (e) => {
     e.preventDefault();
-    if (!file) return;
-    await d(importStudents(file));
+    if (!canImport) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("kind", kind);
+
+    try {
+      setStatus("loading"); setError(null); setSummary(null);
+      const { data } = await api.post("plans/import", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setSummary(data);
+    } catch (e) {
+      setError(e?.response?.data?.message || e.message);
+    } finally {
+      setStatus("idle");
+    }
   };
 
-   // inside Students/Import.jsx
-const downloadTemplate = async () => {
-  const { data } = await apiDownloadTpl();   // axios instance → Authorization included
-  const url = URL.createObjectURL(new Blob([data]));
-  const a = document.createElement("a");
-  a.href = url; a.download = "modele_etudiants.xlsx"; a.click();
-  URL.revokeObjectURL(url);
-};
-
-
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-accent/40 p-4 bg-white">
-        <h2 className="text-lg font-semibold text-primary mb-2">Importer des étudiants (Excel)</h2>
+    <div className="p-4 space-y-4">
+      <h1 className="text-xl font-semibold">Importer les choix de repas</h1>
+      <p className="text-sm text-slate-600">
+        Importez un fichier Excel avec une colonne <b>Matricule</b>, et pour chaque jour, trois colonnes
+        <i> Petit-déjeuner / Déjeuner / Dîner</i> (2 lignes d’en-tête) ou des en-têtes plats “YYYY-MM-DD Déjeuner”.
+      </p>
 
-        {error && <div className="text-red-700 bg-red-50 border border-red-300 rounded p-2 mb-2">{error}</div>}
+      <form onSubmit={onSubmit} className="space-y-3">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <select
+            className="px-3 py-2 rounded-md border"
+            value={kind}
+            onChange={(e)=>setKind(e.target.value)}
+          >
+            <option value="student">Étudiants</option>
+            <option value="staff">Personnel</option>
+          </select>
 
-        <form onSubmit={submit} className="flex flex-col sm:flex-row items-start gap-3">
           <input
             type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="block"
+            accept=".xlsx"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            className="px-3 py-2 rounded-md border"
           />
-          <button
-            type="submit"
-            disabled={!file || importStatus === "loading"}
-            className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary-dark disabled:opacity-50"
-          >
-            {importStatus === "loading" ? "Import…" : "Importer"}
-          </button>
+        </div>
 
-          <button
-            type="button"
-            onClick={downloadTemplate}
-            className="px-4 py-2 rounded-lg border border-accent/50 hover:bg-secondary"
-          >
-            Télécharger le modèle
-          </button>
-        </form>
+        {error && <div className="text-red-700 bg-red-50 border rounded p-2">{error}</div>}
 
-        {importResult && (
-          <div className="mt-3 text-sm bg-secondary/40 border border-accent/50 rounded p-2">
-            Import terminé — lignes: <b>{importResult.rows}</b>,
-            créés: <b>{importResult.created}</b>,
-            mis à jour: <b>{importResult.updated}</b>,
-            ignorés: <b>{importResult.skipped}</b>.
+        <button
+          type="submit"
+          disabled={!canImport || disabled}
+          className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+        >
+          {disabled ? "Importation…" : "Importer"}
+        </button>
+
+        {summary && (
+          <div className="mt-4 rounded-md border bg-white">
+            <div className="p-3 border-b font-medium">Résumé</div>
+            <div className="p-3 text-sm">
+              <div>Créés: <b>{summary.created || 0}</b></div>
+              <div>Mis à jour: <b>{summary.updated || 0}</b></div>
+              {Array.isArray(summary.issues) && summary.issues.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer">Problèmes ({summary.issues.length})</summary>
+                  <ul className="list-disc pl-5 mt-1">
+                    {summary.issues.slice(0, 50).map((it, idx) => (
+                      <li key={idx}>
+                        {it.row ? `Ligne ${it.row}: ` : ""}{String(it.reason)}
+                      </li>
+                    ))}
+                    {summary.issues.length > 50 && <li>… et {summary.issues.length - 50} autres</li>}
+                  </ul>
+                </details>
+              )}
+            </div>
           </div>
         )}
-      </div>
-
-      <div className="text-sm text-slate-600">
-        <p>Le fichier doit contenir les colonnes: <b>Matricule</b>, <b>Nom</b>, <b>Prénom</b> (ou <b>Nom complet</b>), <b>Etablissement</b> (si vous êtes ADMIN), et <b>Email</b> (optionnel).</p>
-      </div>
+      </form>
     </div>
   );
 }

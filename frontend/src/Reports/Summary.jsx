@@ -1,8 +1,8 @@
 // src/Reports/Summary.jsx
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
-import { byDay, byWeek, byMonth } from "../lib/reports.api"; // <- new
-import { apiListEstablishments } from "../lib/establishments.api"; // <- new (next section) optional
+import { byDay, byWeek, byMonth } from "../lib/reports.api";
+import { apiListEstablishments } from "../lib/establissments.api";
 
 const tabs = [
   { key: "day",   label: "Jour" },
@@ -11,30 +11,27 @@ const tabs = [
 ];
 
 export default function Summary() {
-  const [active, setActive] = useState("week"); // you said byWeek already works
+  const [active, setActive] = useState("week");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [data, setData] = useState(null);
 
-  // optional: filter by établissement
   const [establishments, setEstablishments] = useState([]);
   const [estId, setEstId] = useState("");
 
-  // controls
-  const [date, setDate] = useState(dayjs().format("YYYY-MM-DD"));              // day
-  const [weekStart, setWeekStart] = useState(dayjs().startOf("week").format("YYYY-MM-DD")); // week
-  const [year, setYear] = useState(dayjs().year());                            // month
-  const [month, setMonth] = useState(dayjs().month() + 1);                     // 1..12
-  const [meal, setMeal] = useState("");                                        // '', 'PETIT_DEJEUNER', 'DEJEUNER', 'DINER'
-  const [status, setStatus] = useState("");                                    // for day: '', 'used', 'unused'
+  const [date, setDate] = useState(dayjs().format("YYYY-MM-DD")); // day
+  const [weekStart, setWeekStart] = useState(dayjs().startOf("week").format("YYYY-MM-DD"));
+  const [year, setYear] = useState(dayjs().year());
+  const [month, setMonth] = useState(dayjs().month() + 1);
+  const [meal, setMeal] = useState("");
+  const [status, setStatus] = useState("");
 
-  // Load établissements (optional)
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await apiListEstablishments();
+        const { data } = await apiListEstablishments({ page: 1, pageSize: 200 });
         setEstablishments(data.items || data);
-      } catch { /* ignore */ }
+      } catch { /* non-critical */ }
     })();
   }, []);
 
@@ -43,13 +40,8 @@ export default function Summary() {
     if (estId) base.establishmentId = estId;
     if (meal)  base.meal = meal;
 
-    if (active === "day") {
-      return { ...base, date, ...(status ? { status } : {}) };
-    }
-    if (active === "week") {
-      return { ...base, weekStart };
-    }
-    // month
+    if (active === "day")   return { ...base, date, ...(status ? { status } : {}) };
+    if (active === "week")  return { ...base, weekStart };
     return { ...base, year, month: Number(month) };
   }, [active, date, weekStart, year, month, meal, status, estId]);
 
@@ -58,9 +50,9 @@ export default function Summary() {
       setErr(null); setLoading(true);
       try {
         let res;
-        if (active === "day")   res = await byDay(params);
-        else if (active === "week")  res = await byWeek(params);
-        else                    res = await byMonth(params);
+        if (active === "day")      res = await byDay(params);
+        else if (active === "week") res = await byWeek(params);
+        else                       res = await byMonth(params);
         setData(res.data);
       } catch (e) {
         setErr(e?.response?.data?.message || "Erreur de chargement");
@@ -85,7 +77,6 @@ export default function Summary() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-end">
-        {/* établissement */}
         <div className="flex flex-col">
           <label className="text-xs">Établissement</label>
           <select value={estId} onChange={(e)=>setEstId(e.target.value)} className="px-3 py-2 rounded-md border">
@@ -94,7 +85,6 @@ export default function Summary() {
           </select>
         </div>
 
-        {/* meal */}
         <div className="flex flex-col">
           <label className="text-xs">Repas</label>
           <select value={meal} onChange={(e)=>setMeal(e.target.value)} className="px-3 py-2 rounded-md border">

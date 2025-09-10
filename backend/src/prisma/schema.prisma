@@ -7,116 +7,111 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Establishment {
-  id       String        @id @default(cuid())
-  name     String        @unique
-  location String?
-  students Student[]
-  batches  TicketBatch[]
-
-  // Named relation so Prisma can distinguish it
-  tickets Ticket[] @relation("TicketEstablishment")
-
-  createdAt DateTime @default(now())
-}
-
-model Student {
-  id              String        @id @default(cuid())
-  matricule       String        @unique
-  nom             String
-  prenom          String
-  etablissement   Establishment @relation(fields: [etablissementId], references: [id])
-  etablissementId String
-  active          Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  tickets         Ticket[]
-
-  @@index([etablissementId])
-}
-
-enum MealType {
-  BREAKFAST
-  LUNCH
-  DINNER
-}
-
-model TicketBatch {
-  id              String        @id @default(cuid())
-  weekStart       DateTime
-  weekEnd         DateTime
-  etablissement   Establishment @relation(fields: [etablissementId], references: [id])
-  etablissementId String
-  createdById     String
-  createdAt       DateTime      @default(now())
-  tickets         Ticket[]
-
-  @@index([etablissementId])
-}
-
-model Ticket {
-  id        String       @id @default(cuid())
-  code      String       @unique
-  signature String
-  date      DateTime
-  meal      MealType
-  status    TicketStatus @default(UNUSED)
-
-  student   Student @relation(fields: [studentId], references: [id])
-  studentId String
-
-  batch   TicketBatch @relation(fields: [batchId], references: [id])
-  batchId String
-
-  // Opposite side of Establishment.tickets (named relation)
-  establishment   Establishment @relation("TicketEstablishment", fields: [establishmentId], references: [id])
-  establishmentId String
-
-  // Opposite side of ScanLog.ticket
-  scanLogs ScanLog[]
-
-  usedAt    DateTime?
-  usedById  String?
-  createdAt DateTime  @default(now())
-
-  @@index([studentId])
-  @@index([batchId])
-  @@index([date, meal])
-  @@index([establishmentId])
-}
-
-enum TicketStatus {
-  UNUSED
-  USED
-  REVOKED
-  EXPIRED
-}
-
-model ScanLog {
-  id        String   @id @default(cuid())
-  ticket    Ticket   @relation(fields: [ticketId], references: [id])
-  ticketId  String
-  agentId   String
-  success   Boolean
-  reason    String?
-  scannedAt DateTime @default(now())
-
-  @@index([ticketId])
-}
-
-model User {
-  id                 String    @id @default(cuid())
-  name               String
-  email              String    @unique
-  passwordHash       String
-  role               Role
-  establishmentId    String?
-  mustChangePassword Boolean   @default(true)
-  passwordChangedAt  DateTime?
-  createdAt          DateTime  @default(now())
-}
-
+/**
+ * ===== Enums (declare before models) =====
+ */
 enum Role {
   ADMIN
   MANAGER
   SCAN_AGENT
 }
+
+enum PersonType {
+  STUDENT
+  STAFF
+}
+
+enum Meal {
+  PETIT_DEJEUNER
+  DEJEUNER
+  DINER
+}
+
+/**
+ * ===== Core models =====
+ */
+model Establishment {
+  id           String            @id @default(cuid())
+  name         String            @unique
+  location     String?
+  people       Person[]
+  users        User[]
+  consumptions MealConsumption[] @relation("EstablishmentConsumptions")
+  createdAt    DateTime          @default(now())
+}
+
+model User {
+  id String @id @default(cuid())
+
+  // 👇 NEW
+  username String  @unique
+  email    String? @unique
+
+  name               String
+  passwordHash       String
+  role               Role
+  establishmentId    String?
+  establishment      Establishment? @relation(fields: [establishmentId], references: [id])
+  mustChangePassword Boolean        @default(true)
+  passwordChangedAt  DateTime?
+  createdAt          DateTime       @default(now())
+
+  scans MealConsumption[] @relation("UserScans")
+}
+
+model Person {
+  id              String        @id @default(cuid())
+  matricule       String        @unique
+  name            String
+  email           String?       @unique
+  type            PersonType
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+  createdAt       DateTime      @default(now())
+
+  plans        MealPlan[]
+  consumptions MealConsumption[]
+
+  @@index([establishmentId])
+}
+
+model MealPlan {
+  id        String   @id @default(cuid())
+  personId  String
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  date      DateTime
+  meal      Meal
+  planned   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([personId, date, meal], name: "uniq_plan")
+  @@index([date, meal])
+}
+
+model MealConsumption {
+  id         String   @id @default(cuid())
+  personId   String
+  person     Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  date       DateTime
+  meal       Meal
+  consumedAt DateTime @default(now())
+
+  scannerUserId String?
+  scanner       User?   @relation(name: "UserScans", fields: [scannerUserId], references: [id])
+
+  establishmentId String?
+  establishment   Establishment? @relation(name: "EstablishmentConsumptions", fields: [establishmentId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([personId, date, meal], name: "uniq_consumption")
+  @@index([date, meal])
+}
+
+/**
+ * ===== Keep any legacy models below to avoid dropping data =====
+ */
+/**
+ * model Student { ... }
+ * model Ticket  { ... }
+ */

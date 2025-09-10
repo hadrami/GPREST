@@ -1,114 +1,99 @@
 // backend/src/routes/reports.js
-export default async function routes(fastify) {
+export default async function reportsRoutes(fastify) {
   const { prisma } = fastify;
-  const isAdmin = (req) => req.user?.role === "ADMIN";
-  const scope = (req) =>
-    isAdmin(req) ? {} : (req.user?.establishmentId ? { etablissementId: req.user.establishmentId } : { id: "__none__" });
 
-  // GET /api/reports/by-day?date=YYYY-MM-DD&meal=DEJEUNER&status=used|unused
-  fastify.get("/by-day", { preHandler: [fastify.auth] }, async (req, reply) => {
-    const { date, meal, status = "used" } = req.query || {};
-    if (!date) return reply.code(400).send({ message: "date requise (YYYY-MM-DD)" });
+  // GET /api/reports/by-day?date=YYYY-MM-DD&meal=&establishmentId=&type=&status=
+  fastify.get("/by-day", { preHandler: [fastify.auth] }, async (req) => {
+    const { date, meal, establishmentId, type, status } = req.query || {};
+    const d = date ? new Date(`${date}T00:00:00Z`) : new Date(new Date().toDateString());
 
-    const whereBase = { ...scope(req), date: new Date(date) };
-    if (meal) whereBase.meal = meal;
+    const wherePlan = {
+      date: d,
+      ...(meal ? { meal } : {}),
+      ...(establishmentId ? { person: { establishmentId } } : {}),
+      ...(type ? { person: { type } } : {}),
+    };
+    const whereCons = {
+      date: d,
+      ...(meal ? { meal } : {}),
+      ...(establishmentId ? { person: { establishmentId } } : {}),
+      ...(type ? { person: { type } } : {}),
+    };
+
+    const [planned, eaten] = await Promise.all([
+      prisma.mealPlan.count({ where: wherePlan }),
+      prisma.mealConsumption.count({ where: whereCons }),
+    ]);
+    const noShow = Math.max(0, planned - eaten);
 
     if (status === "used") {
-      const tickets = await prisma.ticket.findMany({
-        where: { ...whereBase, usedAt: { not: null } },
-        include: { student: true },
+      const items = await prisma.mealConsumption.findMany({
+        where: whereCons, include: { person: { select: { name: true, matricule: true } } }
       });
-      const items = tickets.map(t => t.student); // un ticket / étudiant / jour / repas => déjà unique
-      return { items, totals: { used: tickets.length } };
-    } else {
-      // Unused = tickets non consommés pour ce jour/repas
-      const tickets = await prisma.ticket.findMany({
-        where: { ...whereBase, usedAt: null },
-        include: { student: true },
-      });
-      const items = tickets.map(t => t.student);
-      return { items, totals: { unused: tickets.length } };
+      return { planned, eaten, noShow, used: items.map(i => i.person) };
     }
+    if (status === "unused") {
+      const plannedPeople = await prisma.mealPlan.findMany({ where: wherePlan, select: { personId: true } });
+      const consumedPeople = await prisma.mealConsumption.findMany({ where: whereCons, select: { personId: true } });
+      const usedSet = new Set(consumedPeople.map(x => x.personId));
+      const unusedIds = plannedPeople.map(x => x.personId).filter(id => !usedSet.has(id));
+      const persons = await prisma.person.findMany({
+        where: { id: { in: unusedIds } },
+        select: { name: true, matricule: true }
+      });
+      return { planned, eaten, noShow, unused: persons };
+    }
+
+    return { planned, eaten, noShow };
   });
 
-  // GET /api/reports/by-week?weekStart=YYYY-MM-DD&meal=optional
-  fastify.get("/by-week", { preHandler: [fastify.auth] }, async (req, reply) => {
-    const { weekStart, meal } = req.query || {};
-    if (!weekStart) return reply.code(400).send({ message: "weekStart requis (YYYY-MM-DD)" });
-    const start = new Date(weekStart);
-    const end = new Date(start); end.setDate(end.getDate() + 6); // 7 jours
+  // GET /api/reports/by-week?weekStart=YYYY-MM-DD&meal=&establishmentId=&type=
+  fastify.get("/by-week", { preHandler: [fastify.auth] }, async (req) => {
+    const { weekStart, meal, establishmentId, type } = req.query || {};
+    if (!weekStart) return { message: "weekStart requis" };
+    const start = new Date(`${weekStart}T00:00:00Z`);
+    const end = new Date(start); end.setUTCDate(end.getUTCDate() + 7);
 
-    const where = {
-      ...scope(req),
-      date: { gte: start, lte: end },
-      usedAt: { not: null },
+    const wherePlan = {
+      date: { gte: start, lt: end },
       ...(meal ? { meal } : {}),
+      ...(establishmentId ? { person: { establishmentId } } : {}),
+      ...(type ? { person: { type } } : {}),
     };
+    const whereCons = { ...wherePlan };
 
-    const used = await prisma.ticket.findMany({
-      where, select: { studentId: true, date: true }
-    });
+    const [planned, eaten] = await Promise.all([
+      prisma.mealPlan.count({ where: wherePlan }),
+      prisma.mealConsumption.count({ where: whereCons }),
+    ]);
+    const noShow = Math.max(0, planned - eaten);
 
-    // uniques par étudiant
-    const uniq = new Set(used.map(u => u.studentId));
-    // histogramme par jour
-    const byDay = {};
-    for (const u of used) {
-      const d = u.date.toISOString().slice(0,10);
-      byDay[d] = (byDay[d] || 0) + 1;
-    }
-
-    // liste des étudiants (uniques)
-    const students = await prisma.student.findMany({
-      where: { id: { in: [...uniq] } },
-      include: { etablissement: true },
-      orderBy: { name: "asc" },
-    });
-
-    return { items: students, totals: { unique: students.length, byDay } };
+    return { planned, eaten, noShow };
   });
 
-  // GET /api/reports/by-month?year=2025&month=09&meal=optional
-  fastify.get("/by-month", { preHandler: [fastify.auth] }, async (req, reply) => {
-    const year = Number(req.query?.year);
-    const month = Number(req.query?.month); // 01..12
-    const { meal } = req.query || {};
-    if (!year || !month) return reply.code(400).send({ message: "year et month requis" });
+  // GET /api/reports/by-month?year=2025&month=9&meal=&establishmentId=&type=
+  fastify.get("/by-month", { preHandler: [fastify.auth] }, async (req) => {
+    const { year, month, meal, establishmentId, type } = req.query || {};
+    const y = Number(year), m = Number(month);
+    if (!y || !m) return { message: "year & month requis" };
 
-    const start = new Date(`${year}-${String(month).padStart(2,"0")}-01T00:00:00Z`);
-    const end = new Date(start); end.setMonth(end.getMonth() + 1); end.setDate(end.getDate() - 1);
+    const start = new Date(Date.UTC(y, m - 1, 1));
+    const end   = new Date(Date.UTC(y, m, 1));
 
-    const where = {
-      ...scope(req),
-      date: { gte: start, lte: end },
-      usedAt: { not: null },
+    const wherePlan = {
+      date: { gte: start, lt: end },
       ...(meal ? { meal } : {}),
+      ...(establishmentId ? { person: { establishmentId } } : {}),
+      ...(type ? { person: { type } } : {}),
     };
+    const whereCons = { ...wherePlan };
 
-    const used = await prisma.ticket.findMany({ where, select: { studentId: true, date: true } });
-    const uniq = new Set(used.map(u => u.studentId));
+    const [planned, eaten] = await Promise.all([
+      prisma.mealPlan.count({ where: wherePlan }),
+      prisma.mealConsumption.count({ where: whereCons }),
+    ]);
+    const noShow = Math.max(0, planned - eaten);
 
-    // byWeek: ISO week number
-    const weekKey = (d) => {
-      const dt = new Date(d);
-      const dayNum = (dt.getUTCDay() + 6) % 7;
-      dt.setUTCDate(dt.getUTCDate() - dayNum + 3);
-      const firstThursday = new Date(Date.UTC(dt.getUTCFullYear(),0,4));
-      const week = 1 + Math.round(((dt - firstThursday) / 86400000 - 3) / 7);
-      return `${dt.getUTCFullYear()}-W${String(week).padStart(2,"0")}`;
-    };
-    const byWeek = {};
-    for (const u of used) {
-      const wk = weekKey(u.date);
-      byWeek[wk] = (byWeek[wk] || 0) + 1;
-    }
-
-    const students = await prisma.student.findMany({
-      where: { id: { in: [...uniq] } },
-      include: { etablissement: true },
-      orderBy: { name: "asc" },
-    });
-
-    return { items: students, totals: { unique: students.length, byWeek } };
+    return { planned, eaten, noShow };
   });
 }

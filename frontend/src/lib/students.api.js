@@ -1,10 +1,25 @@
+
 // src/lib/students.api.js
 import api from "./api";
-export const apiListStudents   = (params) => api.get("/api/students", { params });
-export const apiDeleteStudent  = (id) => api.delete(`/api/students/${id}`);
-export const apiDownloadTpl    = () => api.get("/api/students/template", { responseType: "blob" });
-export const apiImportStudents = (file) => {
-  const fd = new FormData(); fd.append("file", file);
-  // don’t set Content-Type manually; browser will set boundary
-  return api.post("/api/students/import", fd);
-};
+
+export function apiListStudents({ search = "", page = 1, pageSize = 20 } = {}) {
+  // IMPORTANT: no leading slash -> "students" (resolves to /api/students)
+  return api.get("students", { params: { search, page, pageSize } });
+}
+
+export function apiDeleteStudent(id) {
+  return api.delete(`/students/${id}`);
+}
+
+export function apiImportStudents(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post("/students/import", fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+}
+
+// Optional template download route if you expose it:
+export function apiDownloadTpl() {
+  return api.get("/students/template", { responseType: "blob" });
+}

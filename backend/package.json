@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "type": "module",
   "main": "index.js",
+  "prisma": { "schema": "src/prisma/schema.prisma" },
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
-    "prisma:gen": "prisma generate",
+    "studio": "prisma studio",
+    "db:push": "prisma db push --force-reset",
+    "db:migrate": "prisma migrate dev -n init",
+    "generate": "prisma generate",
     "prisma:dev": "prisma migrate dev --name init && node prisma/seed.js",
     "check:env": "node -e \"require('dotenv').config(); console.log('JWT?', !!process.env.JWT_SECRET, 'QR?', !!process.env.QR_SECRET, 'DB?', !!process.env.DATABASE_URL)\""
   },

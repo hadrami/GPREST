@@ -1,4 +1,15 @@
+// src/lib/reports.api.js
 import api from "./api";
-export const byDay   = (params) => api.get("/api/reports/by-day",   { params });
-export const byWeek  = (params) => api.get("/api/reports/by-week",  { params });
-export const byMonth = (params) => api.get("/api/reports/by-month", { params });
+
+export function byDay(params) {
+  // params: { date, meal?, establishmentId?, type?, status?('used'|'unused') }
+  return api.get("/reports/by-day", { params });
+}
+export function byWeek(params) {
+  // params: { weekStart, meal?, establishmentId?, type? }
+  return api.get("/reports/by-week", { params });
+}
+export function byMonth(params) {
+  // params: { year, month, meal?, establishmentId?, type? }
+  return api.get("/reports/by-month", { params });
+}

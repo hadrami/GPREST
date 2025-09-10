@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { deleteStudent, fetchStudents } from "../redux/slices/studentsSlice";
-import {byDay, byWeek, byMonth} from "../lib/reports.api";
+import { byDay, byWeek, byMonth } from "../lib/reports.api";
 import { Link } from "react-router-dom";
 
 const MEALS = [
@@ -11,37 +11,40 @@ const MEALS = [
   { key: "DINER", label: "Dîner" },
 ];
 
+function rowOf(item) {
+  // unify shape: some report endpoints may return { person: {...} }
+  const p = item.person || item;
+  return {
+    id: p.id,
+    matricule: p.matricule,
+    name: p.name,
+    email: p.email,
+    establishmentName: p.establishment?.name ?? p.etablissement?.name ?? "—",
+  };
+}
+
 export default function StudentsList() {
   const d = useDispatch();
   const { items, total, page, pageSize, status } = useSelector((s) => s.students);
 
-  // Search / pagination (mode "Tous")
   const [q, setQ] = useState("");
-
-  // View mode tabs
   const [mode, setMode] = useState("all"); // all | day | week | month
 
-  // Day filter
   const today = new Date().toISOString().slice(0,10);
   const [date, setDate] = useState(today);
   const [meal, setMeal] = useState("DEJEUNER");
   const [statusFilter, setStatusFilter] = useState("used"); // used | unused
 
-  // Week filter
-  const [weekStart, setWeekStart] = useState(today); // Monday of week ideally
-
-  // Month filter
+  const [weekStart, setWeekStart] = useState(today);
   const [month, setMonth] = useState(() => {
     const dt = new Date(); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
   });
 
-  // Data from reports
   const [reportItems, setReportItems] = useState([]);
   const [reportMeta, setReportMeta] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
 
-  // initial load for "all"
   useEffect(() => { d(fetchStudents({ page: 1, pageSize })); }, [d, pageSize]);
 
   const search = (e) => {
@@ -51,7 +54,6 @@ export default function StudentsList() {
   const next = () => d(fetchStudents({ search: q, page: page + 1, pageSize }));
   const prev = () => d(fetchStudents({ search: q, page: Math.max(1, page - 1), pageSize }));
 
-  // fetch reports when mode/filters change
   useEffect(() => {
     if (mode === "day") {
       (async () => {
@@ -85,8 +87,8 @@ export default function StudentsList() {
   }, [mode, date, meal, statusFilter, weekStart, month]);
 
   const currentRows = useMemo(() => {
-    if (mode === "all") return items;
-    return reportItems;
+    const base = mode === "all" ? items : reportItems;
+    return base.map(rowOf);
   }, [mode, items, reportItems]);
 
   return (
@@ -100,13 +102,10 @@ export default function StudentsList() {
             placeholder="Rechercher par nom / matricule / email"
             className="flex-1 px-3 py-2 rounded-md border"
           />
-          <button className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary-dark">Rechercher</button>
+          <button className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90">Rechercher</button>
         </form>
         <div className="flex gap-2">
           <Link to="/students/import" className="px-3 py-2 rounded-lg border hover:bg-secondary">Importer (XLSX)</Link>
-          <Link to="/tickets/generate" className="px-3 py-2 rounded-lg bg-primary text-white hover:bg-primary-dark">
-            Générer tickets
-          </Link>
         </div>
       </div>
 
@@ -170,12 +169,12 @@ export default function StudentsList() {
           )}
           {reportMeta && mode === "week" && (
             <div className="bg-secondary/40 border rounded p-2">
-              Étudiants uniques sur la semaine: <b>{reportMeta.unique || 0}</b>
+              Personnes uniques (semaine): <b>{reportMeta.unique || 0}</b>
             </div>
           )}
           {reportMeta && mode === "month" && (
             <div className="bg-secondary/40 border rounded p-2">
-              Étudiants uniques sur le mois: <b>{reportMeta.unique || 0}</b>
+              Personnes uniques (mois): <b>{reportMeta.unique || 0}</b>
             </div>
           )}
         </div>
@@ -205,7 +204,7 @@ export default function StudentsList() {
                 <td className="px-3 py-2">{s.matricule}</td>
                 <td className="px-3 py-2">{s.name}</td>
                 <td className="px-3 py-2">{s.email ?? "—"}</td>
-                <td className="px-3 py-2">{s.etablissement?.name ?? "—"}</td>
+                <td className="px-3 py-2">{s.establishmentName}</td>
                 {mode === "all" && (
                   <td className="px-3 py-2">
                     <button onClick={() => d(deleteStudent(s.id))} className="text-red-600 hover:text-red-800">Supprimer</button>

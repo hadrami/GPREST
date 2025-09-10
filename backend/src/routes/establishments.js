@@ -2,7 +2,7 @@
 export default async function establishmentsRoutes(fastify) {
   const { prisma } = fastify;
 
-  // List (with optional search + pagination)
+  // GET /api/establishments?search=&page=1&pageSize=50
   fastify.get("/", { preHandler: [fastify.auth] }, async (req) => {
     const { search = "", page = 1, pageSize = 50 } = req.query || {};
     const skip = (Number(page) - 1) * Number(pageSize);
@@ -23,7 +23,7 @@ export default async function establishmentsRoutes(fastify) {
     return { items, total, page: Number(page), pageSize: Number(pageSize) };
   });
 
-  // Get by ID
+  // GET /api/establishments/:id
   fastify.get("/:id", { preHandler: [fastify.auth] }, async (req, reply) => {
     const est = await prisma.establishment.findUnique({
       where: { id: req.params.id },
@@ -33,7 +33,7 @@ export default async function establishmentsRoutes(fastify) {
     return est;
   });
 
-  // Get by name (exact, case-insensitive)
+  // GET /api/establishments/by-name?name=ESP
   fastify.get("/by-name", { preHandler: [fastify.auth] }, async (req, reply) => {
     const name = (req.query?.name || "").trim();
     if (!name) return reply.code(400).send({ message: "name is required" });

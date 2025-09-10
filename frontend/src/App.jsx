@@ -1,20 +1,21 @@
+// src/App.jsx
 import React from "react";
-import { Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 
 import AuthLayout from "./layouts/AuthLayout.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
+
 import StudentsList from "./Students/List.jsx";
 import StudentsImport from "./Students/Import.jsx";
 import TicketsGenerate from "./Tickets/Generate.jsx";
-
 
 import Login from "./pages/auth/Login.jsx";
 import ForcePasswordChange from "./pages/auth/ForcePasswordChange.jsx";
 import Dashboard from "./pages/dashboard/Dashboard.jsx";
 import Scanner from "./pages/Scanner.jsx";
 
-/** Gate for guests only (e.g., /login) */
+/** Guest-only pages (e.g., /login) */
 function GuestOnly({ children }) {
   const { token, requiresPasswordChange } = useSelector((s) => s.auth);
   if (token && requiresPasswordChange) return <Navigate to="/force-password-change" replace />;
@@ -22,7 +23,7 @@ function GuestOnly({ children }) {
   return children;
 }
 
-/** Gate for authed pages; optionally allow password-change screen */
+/** Protected pages; optionally allow access for forced password-change screen */
 function Authed({ allowPasswordChange = false, children }) {
   const { token, requiresPasswordChange } = useSelector((s) => s.auth);
   if (!token) return <Navigate to="/login" replace />;
@@ -72,7 +73,6 @@ export default function App() {
         <Route path="/students" element={<StudentsList />} />
         <Route path="/students/import" element={<StudentsImport />} />
         <Route path="/tickets/generate" element={<TicketsGenerate />} />
-
         {/* add more protected routes here */}
       </Route>
 

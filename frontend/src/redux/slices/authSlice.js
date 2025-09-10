@@ -1,10 +1,29 @@
 // src/redux/slices/authSlice.js
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import { apiLogin, apiMe, apiChangePassword } from "../../lib/auth.api";
+import api  from "../../lib/api";
+
+export const bootstrapAuth = createAsyncThunk(
+  "auth/bootstrap",
+  async (_, { rejectWithValue }) => {
+    const token = localStorage.getItem("token");
+    if (!token) return { token: null, user: null, requiresPasswordChange: false };
+    try {
+      const { data } = await api.get("/auth/me");
+      return {
+        token,
+        user: data,
+        requiresPasswordChange: !!data?.mustChangePassword,
+      };
+    } catch  {
+      return rejectWithValue("invalid_or_stale_token");
+    }
+  }
+);
 
 export const login = createAsyncThunk("auth/login",
-  async ({ email, password }, { rejectWithValue }) => {
-    try { const { data } = await apiLogin(email, password); return data; }
+  async ({ username, password }, { rejectWithValue }) => {
+    try { const { data } = await apiLogin(username, password); return data; }
     catch (e) { return rejectWithValue(e?.response?.data?.message || "Login failed"); }
   });
 
@@ -56,7 +75,22 @@ const slice = createSlice({
         s.user = a.payload;
         s.requiresPasswordChange = !!a.payload.mustChangePassword;
      })
-
+b.addCase(bootstrapAuth.pending, (s) => {
+      s.status = "loading"; s.error = null;
+    });
+    b.addCase(bootstrapAuth.fulfilled, (s, a) => {
+      s.status = "succeeded";
+      s.token = a.payload.token;
+      s.user = a.payload.user;
+      s.requiresPasswordChange = !!a.payload.requiresPasswordChange;
+    });
+    b.addCase(bootstrapAuth.rejected, (s) => {
+      s.status = "failed";
+      s.token = null;
+      s.user = null;
+      s.requiresPasswordChange = false;
+      localStorage.removeItem("token"); 
+    })
      .addCase(changePassword.pending,   (s)=>{ s.status="loading"; s.error=null; })
      .addCase(changePassword.fulfilled, (s,a)=> {
         s.status="succeeded";
@@ -65,6 +99,7 @@ const slice = createSlice({
         localStorage.setItem("token", s.token);
      })
      .addCase(changePassword.rejected,  (s,a)=>{ s.status="failed"; s.error=a.payload; });
+     
   },
 });
 
