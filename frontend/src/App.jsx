@@ -7,6 +7,7 @@ import AuthLayout from "./layouts/AuthLayout.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 
 import MealPlansList from "./pages/mealplans/MealPlansList.jsx";
+import Summary from "./Reports/Summary.jsx";
 
 import StudentsList from "./Students/List.jsx";
 import StudentsImport from "./Students/Import.jsx";
@@ -76,6 +77,8 @@ export default function App() {
         <Route path="mealplans" element={<MealPlansList />} />
         <Route path="/students/import" element={<StudentsImport />} />
         <Route path="/tickets/generate" element={<TicketsGenerate />} />
+        <Route path="/reports/summary" element={<Summary />} />
+
         {/* add more protected routes here */}
       </Route>
 

@@ -70,6 +70,74 @@ export default function MealPlansList() {
     }
   }
 
+  function currentFilterLine() {
+  const labelMeal = MEAL_LABELS[meal] || (meal || "Tous");
+  const modeLabel = { all: "Tout", day: "Jour", week: "Semaine", month: "Mois" }[mode];
+  return `Mode: ${modeLabel} • Date: ${date} • Repas: ${labelMeal} • Recherche: ${q || "—"}`;
+}
+
+function rowsForExport() {
+  return items.map(it => {
+    const p = it.person || {};
+    return {
+      Date: new Date(it.date).toISOString().slice(0,10),
+      Repas: MEAL_LABELS[it.meal] || it.meal,
+      Matricule: p.matricule || "",
+      Nom: p.name || "",
+      Établissement: p.establishment?.name || "—",
+    };
+  });
+}
+
+async function exportMealPlansPDF() {
+  const rows = rowsForExport();
+  try {
+    const { jsPDF } = await import("jspdf");
+    await import("jspdf-autotable");
+
+    const doc = new jsPDF({ unit: "pt" });
+    const headerBg = [240, 247, 255];
+    const headerTxt = [30, 64, 175];
+
+    doc.setFontSize(18);
+    doc.setTextColor(...headerTxt);
+    doc.text("Liste des choix de repas", 40, 48);
+
+    doc.setFontSize(11);
+    doc.setTextColor(60, 60, 60);
+    doc.text(currentFilterLine(), 40, 68);
+
+    if (rows.length) {
+      const head = [Object.keys(rows[0])];
+      const body = rows.map(r => Object.values(r));
+      // @ts-ignore
+      doc.autoTable({
+        head, body,
+        startY: 90,
+        styles: { fontSize: 10, cellPadding: 6 },
+        headStyles: {
+          fillColor: headerBg, textColor: headerTxt,
+          lineWidth: 0.2, lineColor: [210,210,210], fontStyle: "bold",
+        },
+        bodyStyles: {
+          fillColor: [255,255,255], textColor: [55,65,81],
+          lineColor: [228,228,231], lineWidth: 0.2,
+        },
+        alternateRowStyles: { fillColor: [249,250,251] },
+        margin: { left: 40, right: 40 },
+      });
+    } else {
+      doc.setFontSize(12);
+      doc.text("Aucun résultat.", 40, 100);
+    }
+
+    doc.save(`mealplans_${date}.pdf`);
+  } catch {
+    window.print();
+  }
+}
+
+
   return (
     <div className="p-4 space-y-4">
       <h1 className="text-xl font-semibold">Choix de repas</h1>
@@ -108,7 +176,13 @@ export default function MealPlansList() {
         <div className="flex gap-2">
           <button className="px-3 py-2 rounded bg-primary text-white" type="submit">Appliquer</button>
           <button className="px-3 py-2 rounded border" type="button" onClick={resetFilters}>Réinitialiser</button>
-        </div>
+         <button type="button"
+  onClick={exportMealPlansPDF}
+  className="px-3 py-2 rounded border hover:bg-slate-50">
+  Exporter PDF
+</button>
+
+          </div>
       </form>
 
       {/* Content */}
