@@ -5,11 +5,16 @@ import axios from "axios";
  * Use VITE_API_BASE if you deploy FE/BE separately.
  * In dev (Vite proxy), keep "/api".
  */
-const origin = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+// PREFIX: usually "/api" (your Fastify prefix)
+const BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, ""); // no trailing slash
+const PREFIX = (import.meta.env.VITE_API_PREFIX || "/api").replace(/\/+$/, ""); // "/api"
+
 const api = axios.create({
-  baseURL : origin,
+  // Examples:
+  //  - DEV proxy: BASE = ""     → baseURL = "/api"
+  //  - PROD:      BASE = "https://gprest.example.com" → baseURL = "https://gprest.example.com/api"
+  baseURL: `${BASE}${PREFIX}`,
   withCredentials: false,
-  timeout: 20000,
 });
 
 /** We inject the Redux store so interceptors can dispatch logout */

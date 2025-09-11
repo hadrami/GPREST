@@ -3,7 +3,7 @@ import { api } from "./api";
 /** Upload the XLSX plan; body = FormData(file, establishmentId, kind='student'|'staff') */
 export function importMealPlan(formData) {
   // No leading slash!
-  return api.post("plans/import", formData, {
+  return api.post("/plans/import", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
 }

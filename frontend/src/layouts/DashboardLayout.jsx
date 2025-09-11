@@ -114,6 +114,7 @@ export default function DashboardLayout() {
         <nav className="flex-1 overflow-y-auto py-3">
           <NavItem to="/" label="Tableau de bord" iconPath="M3 12l2-2 7-7 7 7M9 10v10m4-10v10" onNavigate={() => setOpen(false)} />
           <NavItem to="/students" label="Étudiants" iconPath="M5 5v14l7-4 7 4V5" onNavigate={() => setOpen(false)} />
+          <NavItem to="/mealplans" label="Plans de repas" iconPath="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8v8m0 0v8m0-8H4m8 0h8" onNavigate={() => setOpen(false)} />
           <NavItem to="/scanner" label="Scanner" iconPath="M3 7h18M3 12h18M3 17h18" onNavigate={() => setOpen(false)} />
           <NavItem to="/reports/summary" label="Rapports" iconPath="M9 17V7m4 10V7m5 11H5M18 7H5" onNavigate={() => setOpen(false)} />
         </nav>

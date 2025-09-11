@@ -63,6 +63,9 @@ await app.register(scanRoutes, { prefix: "/api/scan" });
 import reportsRoutes from "./src/routes/reports.js";
 await app.register(reportsRoutes, { prefix: "/api/reports" });
 
+import mealPlansRoutes from "./src/routes/mealplans.js";
+await app.register(mealPlansRoutes, { prefix: "/api/mealplans" });
+
 // (Optionnel) si tu gardes d’anciens endpoints:
 try {
   const studentsRoutes = await import("./src/routes/students.js");

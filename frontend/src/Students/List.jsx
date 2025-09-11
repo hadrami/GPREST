@@ -2,17 +2,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { deleteStudent, fetchStudents } from "../redux/slices/studentsSlice";
-import { byDay, byWeek, byMonth } from "../lib/reports.api";
 import { Link } from "react-router-dom";
-
-const MEALS = [
-  { key: "PETIT_DEJEUNER", label: "Petit déjeuner" },
-  { key: "DEJEUNER", label: "Déjeuner" },
-  { key: "DINER", label: "Dîner" },
-];
+import {
+  EyeIcon,
+  TrashIcon,
+  MagnifyingGlassIcon,
+} from "@heroicons/react/24/outline";
 
 function rowOf(item) {
-  // unify shape: some report endpoints may return { person: {...} }
   const p = item.person || item;
   return {
     id: p.id,
@@ -24,209 +21,199 @@ function rowOf(item) {
 }
 
 export default function StudentsList() {
-  const d = useDispatch();
-  const { items, total, page, pageSize, status } = useSelector((s) => s.students);
+  const dispatch = useDispatch();
+  const { items = [],   page = 1, pageSize = 20 } = useSelector(
+    (s) => s.students
+  );
 
   const [q, setQ] = useState("");
-  const [mode, setMode] = useState("all"); // all | day | week | month
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
 
-  const today = new Date().toISOString().slice(0,10);
-  const [date, setDate] = useState(today);
-  const [meal, setMeal] = useState("DEJEUNER");
-  const [statusFilter, setStatusFilter] = useState("used"); // used | unused
+  const [selected, setSelected] = useState(null); // for modal
 
-  const [weekStart, setWeekStart] = useState(today);
-  const [month, setMonth] = useState(() => {
-    const dt = new Date(); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
-  });
-
-  const [reportItems, setReportItems] = useState([]);
-  const [reportMeta, setReportMeta] = useState(null);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportError, setReportError] = useState(null);
-
-  useEffect(() => { d(fetchStudents({ page: 1, pageSize })); }, [d, pageSize]);
-
-  const search = (e) => {
-    e.preventDefault();
-    d(fetchStudents({ search: q, page: 1, pageSize }));
-  };
-  const next = () => d(fetchStudents({ search: q, page: page + 1, pageSize }));
-  const prev = () => d(fetchStudents({ search: q, page: Math.max(1, page - 1), pageSize }));
+  async function load({ resetPage = false } = {}) {
+    setLoading(true);
+    setErr(null);
+    try {
+      await dispatch(
+        fetchStudents({
+          search: q,
+          page: resetPage ? 1 : page,
+          pageSize,
+        })
+      ).unwrap();
+    } catch (e) {
+      setErr(e || "Erreur");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    if (mode === "day") {
-      (async () => {
-        try {
-          setReportLoading(true); setReportError(null);
-          const { data } = await byDay({ date, meal, status: statusFilter });
-          setReportItems(data.items || []); setReportMeta(data.totals || null);
-        } catch (e) { setReportError(e.response?.data?.message || e.message); }
-        finally { setReportLoading(false); }
-      })();
-    } else if (mode === "week") {
-      (async () => {
-        try {
-          setReportLoading(true); setReportError(null);
-          const { data } = await byWeek({ weekStart, meal });
-          setReportItems(data.items || []); setReportMeta(data.totals || null);
-        } catch (e) { setReportError(e.response?.data?.message || e.message); }
-        finally { setReportLoading(false); }
-      })();
-    } else if (mode === "month") {
-      (async () => {
-        try {
-          setReportLoading(true); setReportError(null);
-          const [y,m] = month.split("-");
-          const { data } = await byMonth({ year: y, month: m, meal });
-          setReportItems(data.items || []); setReportMeta(data.totals || null);
-        } catch (e) { setReportError(e.response?.data?.message || e.message); }
-        finally { setReportLoading(false); }
-      })();
-    }
-  }, [mode, date, meal, statusFilter, weekStart, month]);
+    // first view: all rows
+    load({ resetPage: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const currentRows = useMemo(() => {
-    const base = mode === "all" ? items : reportItems;
-    return base.map(rowOf);
-  }, [mode, items, reportItems]);
+  const rows = useMemo(() => items.map(rowOf), [items]);
+
+  async function onDelete(id) {
+    if (!window.confirm("Supprimer cet étudiant ?")) return;
+    try {
+      await dispatch(deleteStudent(id)).unwrap();
+      load({ resetPage: false });
+    } catch (e) {
+      alert(e || "Erreur de suppression");
+    }
+  }
 
   return (
-    <div className="space-y-4">
-      {/* Header: search + actions */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <form onSubmit={search} className="flex flex-1 gap-2">
+    <div className="p-4 space-y-4">
+      <h1 className="text-xl font-semibold">Étudiants</h1>
+
+      {/* Only a search field */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          load({ resetPage: true });
+        }}
+        className="grid gap-2 md:grid-cols-4"
+      >
+        <div className="md:col-span-2 flex items-center border rounded px-2">
+          <MagnifyingGlassIcon className="w-5 h-5 text-slate-500" />
           <input
+            className="px-2 py-2 outline-none w-full"
+            placeholder="Rechercher (matricule, nom, email…)"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Rechercher par nom / matricule / email"
-            className="flex-1 px-3 py-2 rounded-md border"
           />
-          <button className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90">Rechercher</button>
-        </form>
+        </div>
         <div className="flex gap-2">
-          <Link to="/students/import" className="px-3 py-2 rounded-lg border hover:bg-secondary">Importer (XLSX)</Link>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2">
-        {[
-          ["all","Tous"],
-          ["day","Jour"],
-          ["week","Semaine"],
-          ["month","Mois"],
-        ].map(([k,label])=>(
-          <button key={k}
-            onClick={()=>setMode(k)}
-            className={`px-3 py-1.5 rounded-full border ${mode===k ? "bg-primary text-white border-primary" : "hover:bg-secondary"}`}>
-            {label}
+          <button className="px-3 py-2 rounded bg-primary text-white" type="submit">
+            Rechercher
           </button>
-        ))}
-      </div>
-
-      {/* Filters under tabs */}
-      {mode === "day" && (
-        <div className="flex flex-col sm:flex-row gap-2">
-          <input type="date" value={date} onChange={(e)=>setDate(e.target.value)} className="px-3 py-2 rounded-md border" />
-          <select value={meal} onChange={(e)=>setMeal(e.target.value)} className="px-3 py-2 rounded-md border">
-            {MEALS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value)} className="px-3 py-2 rounded-md border">
-            <option value="used">Ont mangé</option>
-            <option value="unused">Pas encore mangé</option>
-          </select>
+          <button
+            className="px-3 py-2 rounded border"
+            type="button"
+            onClick={() => {
+              setQ("");
+              load({ resetPage: true });
+            }}
+          >
+            Tout
+          </button>
         </div>
-      )}
-      {mode === "week" && (
-        <div className="flex flex-col sm:flex-row gap-2">
-          <input type="date" value={weekStart} onChange={(e)=>setWeekStart(e.target.value)} className="px-3 py-2 rounded-md border" />
-          <select value={meal} onChange={(e)=>setMeal(e.target.value)} className="px-3 py-2 rounded-md border">
-            <option value="">Tous repas</option>
-            {MEALS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-          </select>
-        </div>
-      )}
-      {mode === "month" && (
-        <div className="flex flex-col sm:flex-row gap-2">
-          <input type="month" value={month} onChange={(e)=>setMonth(e.target.value)} className="px-3 py-2 rounded-md border" />
-          <select value={meal} onChange={(e)=>setMeal(e.target.value)} className="px-3 py-2 rounded-md border">
-            <option value="">Tous repas</option>
-            {MEALS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-          </select>
-        </div>
-      )}
+      </form>
 
-      {/* Meta line for reports */}
-      {mode !== "all" && (
-        <div className="text-sm text-slate-700">
-          {reportLoading && <div>Calcul…</div>}
-          {reportError && <div className="text-red-700 bg-red-50 border rounded p-2">{reportError}</div>}
-          {reportMeta && mode === "day" && (
-            <div className="bg-secondary/40 border rounded p-2">
-              {statusFilter==="used" ? <>Ont mangé: <b>{reportMeta.used || 0}</b></> : <>Pas encore mangé: <b>{reportMeta.unused || 0}</b></>}
-            </div>
-          )}
-          {reportMeta && mode === "week" && (
-            <div className="bg-secondary/40 border rounded p-2">
-              Personnes uniques (semaine): <b>{reportMeta.unique || 0}</b>
-            </div>
-          )}
-          {reportMeta && mode === "month" && (
-            <div className="bg-secondary/40 border rounded p-2">
-              Personnes uniques (mois): <b>{reportMeta.unique || 0}</b>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Table */}
-      <div className="overflow-x-auto rounded-xl border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-secondary">
-            <tr className="text-left">
-              <th className="px-3 py-2">Matricule</th>
-              <th className="px-3 py-2">Nom</th>
-              <th className="px-3 py-2">Email</th>
-              <th className="px-3 py-2">Établissement</th>
-              {mode === "all" && <th className="px-3 py-2 w-24">Actions</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {(mode === "all" ? (status === "loading") : reportLoading) && (
-              <tr><td className="px-3 py-3" colSpan={5}>Chargement…</td></tr>
-            )}
-            {currentRows.length === 0 && !(mode === "all" ? (status === "loading") : reportLoading) && (
-              <tr><td className="px-3 py-3" colSpan={5}>Aucun résultat</td></tr>
-            )}
-            {currentRows.map((s) => (
-              <tr key={s.id} className="border-t">
-                <td className="px-3 py-2">{s.matricule}</td>
-                <td className="px-3 py-2">{s.name}</td>
-                <td className="px-3 py-2">{s.email ?? "—"}</td>
-                <td className="px-3 py-2">{s.establishmentName}</td>
-                {mode === "all" && (
-                  <td className="px-3 py-2">
-                    <button onClick={() => d(deleteStudent(s.id))} className="text-red-600 hover:text-red-800">Supprimer</button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination only for "Tous" */}
-      {mode === "all" && (
-        <div className="flex items-center justify-between text-sm">
-          <span>Total: {total}</span>
-          <div className="flex gap-2">
-            <button onClick={prev} disabled={page <= 1} className="px-3 py-1 rounded-md border disabled:opacity-50">Préc.</button>
-            <span>Page {page}</span>
-            <button onClick={next} disabled={page * pageSize >= total} className="px-3 py-1 rounded-md border disabled:opacity-50">Suiv.</button>
+      {err && <div className="text-red-600">{String(err)}</div>}
+      {loading ? (
+        <div className="text-slate-500">Chargement…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-slate-500">Aucun résultat.</div>
+      ) : (
+        <>
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto border rounded">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left p-2">Matricule</th>
+                  <th className="text-left p-2">Nom</th>
+                  <th className="text-left p-2">Email</th>
+                  <th className="text-left p-2">Établissement</th>
+                  <th className="text-left p-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((it) => (
+                  <tr key={it.id} className="border-t">
+                    <td className="p-2">{it.matricule}</td>
+                    <td className="p-2">{it.name}</td>
+                    <td className="p-2">{it.email || "—"}</td>
+                    <td className="p-2">{it.establishmentName}</td>
+                    <td className="p-2">
+                      <div className="flex items-center gap-3">
+                        <button
+                          title="Voir"
+                          onClick={() => setSelected(it)}
+                          className="hover:opacity-80"
+                        >
+                          <EyeIcon className="w-5 h-5 text-blue-600" />
+                        </button>
+                        <button
+                          title="Supprimer"
+                          onClick={() => onDelete(it.id)}
+                          className="hover:opacity-80"
+                        >
+                          <TrashIcon className="w-5 h-5 text-red-600" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-2">
+            {rows.map((it) => (
+              <div key={it.id} className="border rounded p-3">
+                <div className="font-medium">
+                  {it.name || "—"}{" "}
+                  <span className="text-slate-500">• {it.matricule}</span>
+                </div>
+                <div className="text-sm text-slate-600">{it.email || "—"}</div>
+                <div className="text-sm">{it.establishmentName}</div>
+                <div className="flex gap-4 pt-2">
+                  <button title="Voir" onClick={() => setSelected(it)}>
+                    <EyeIcon className="w-5 h-5 text-blue-600" />
+                  </button>
+                  <button title="Supprimer" onClick={() => onDelete(it.id)}>
+                    <TrashIcon className="w-5 h-5 text-red-600" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
+
+      {/* VIEW MODAL */}
+      {selected && (
+        <Modal onClose={() => setSelected(null)} title="Détails de l’étudiant">
+          <Item label="Matricule" value={selected.matricule} />
+          <Item label="Nom" value={selected.name} />
+          <Item label="Établissement" value={selected.establishmentName} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function Item({ label, value }) {
+  return (
+    <div className="flex justify-between gap-6 py-1">
+      <div className="text-slate-500">{label}</div>
+      <div className="font-medium">{value ?? "—"}</div>
+    </div>
+  );
+}
+
+function Modal({ title, children, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between border-b p-3">
+          <h2 className="font-semibold">{title}</h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-700">✕</button>
+        </div>
+        <div className="p-4 space-y-2">{children}</div>
+        <div className="p-3 border-t text-right">
+          <button onClick={onClose} className="px-3 py-2 rounded bg-primary text-white">Fermer</button>
+        </div>
+      </div>
     </div>
   );
 }

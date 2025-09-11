@@ -4,7 +4,7 @@ import api from "./api";
 
 export function apiListStudents({ search = "", page = 1, pageSize = 20 } = {}) {
   // IMPORTANT: no leading slash -> "students" (resolves to /api/students)
-  return api.get("students", { params: { search, page, pageSize } });
+  return api.get("/students", { params: { search, page, pageSize } });
 }
 
 export function apiDeleteStudent(id) {

@@ -1,12 +1,9 @@
-// src/routes/plans.js
-// ESM module
-import fp from "fastify-plugin";
+// backend/src/routes/plans.js  (ESM)
 import * as XLSX from "xlsx";
 
 /* =========================
    Normalization / helpers
    ========================= */
-
 function normalizeLabel(s) {
   return String(s ?? "")
     .normalize("NFD")
@@ -16,22 +13,33 @@ function normalizeLabel(s) {
     .trim();
 }
 
+// Map French labels -> Prisma enum keys (IMPORTANT!)
 const MEAL_MAP = {
-  "petit dejeuner": "BREAKFAST",
-  "petit-dejeuner": "BREAKFAST",
-  "petit_dejeuner": "BREAKFAST",
-  breakfast: "BREAKFAST",
-  dejeuner: "LUNCH",
-  "dejeuner ": "LUNCH",
-  "dejeuner  ": "LUNCH",
-  "déjeuner": "LUNCH",
-  lunch: "LUNCH",
-  diner: "DINNER",
-  "diner ": "DINNER",
-  "dîner": "DINNER",
-  dinner: "DINNER",
-};
+  // BREAKFAST family -> PETIT_DEJEUNER
+  "petit dejeuner": "PETIT_DEJEUNER",
+  "petit-dejeuner": "PETIT_DEJEUNER",
+  "petit_dejeuner": "PETIT_DEJEUNER",
+  "pt dej": "PETIT_DEJEUNER",
+  "ptdejeuner": "PETIT_DEJEUNER",
+  "pt-dej": "PETIT_DEJEUNER",
+  "pdj": "PETIT_DEJEUNER",
+  "p dj": "PETIT_DEJEUNER",
+  "p dej": "PETIT_DEJEUNER",
+  breakfast: "PETIT_DEJEUNER",
 
+  // LUNCH family -> DEJEUNER (campus sometimes writes "repas")
+  "dejeuner": "DEJEUNER",
+  "dej": "DEJEUNER",
+  "dejeune": "DEJEUNER",
+  "repas": "DEJEUNER",
+  lunch: "DEJEUNER",
+
+  // DINNER family -> DINER
+  "diner": "DINER",
+  "din": "DINER",
+  "soir": "DINER",
+  dinner: "DINER",
+};
 function normMealLabel(s) {
   const key = normalizeLabel(s).replace(/\s+/g, " ");
   return MEAL_MAP[key] || null;
@@ -40,6 +48,7 @@ function normMealLabel(s) {
 function isChecked(v) {
   if (v === true) return true;
   if (v === false || v == null) return false;
+  if (typeof v === "number") return v === 1;
   const s = normalizeLabel(v);
   return (
     s === "1" ||
@@ -49,43 +58,38 @@ function isChecked(v) {
     s === "oui" ||
     s === "yes" ||
     s === "y" ||
+    s === "check" ||
+    s === "ok" ||
     s === "✓"
   );
 }
 
-/* ====== DATE HELPERS (no SSF / robust) ====== */
-
+/* ====== DATE HELPERS (robust, no SSF) ====== */
 // Excel serial (1900 system): day 1 = 1899-12-31; practical base = 1899-12-30
 function excelSerialToISO(n) {
   if (typeof n !== "number" || !isFinite(n)) return null;
-  const epoch = Date.UTC(1899, 11, 30); // 1899-12-30 UTC
-  const ms = epoch + Math.round(n) * 86400000; // days → ms
+  const epoch = Date.UTC(1899, 11, 30);
+  const ms = epoch + Math.round(n) * 86400000;
   const d = new Date(ms);
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, "0");
   const day = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
-
 function validYMD(y, m, d) {
-  y = Number(y);
-  m = Number(m);
-  d = Number(d);
+  y = Number(y); m = Number(m); d = Number(d);
   if (!y || !m || !d) return false;
   if (m < 1 || m > 12) return false;
   if (d < 1 || d > 31) return false;
   const thirty = [4, 6, 9, 11];
   if (thirty.includes(m) && d > 30) return false;
-  if (m === 2 && d > 29) return false; // good enough
+  if (m === 2 && d > 29) return false;
   return true;
 }
-
-// Parse string dates: supports yyyy/mm/dd, dd/mm/yyyy, yyyy/dd/mm
+// supports yyyy/mm/dd, dd/mm/yyyy, yyyy/dd/mm + native Date strings
 function parseDateStringToISO(s) {
   if (!s) return null;
   s = String(s).trim();
-
-  // yyyy-mm-dd or yyyy/mm/dd
   let m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
   if (m) {
     let [_, Y, A, B] = m;
@@ -96,16 +100,12 @@ function parseDateStringToISO(s) {
     if (validYMD(Y, A, B))
       return `${Y}-${String(A).padStart(2, "0")}-${String(B).padStart(2, "0")}`;
   }
-
-  // dd-mm-yyyy or dd/mm/yyyy
   m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (m) {
     let [_, D, M, Y] = m;
     if (validYMD(Y, M, D))
       return `${Y}-${String(M).padStart(2, "0")}-${String(D).padStart(2, "0")}`;
   }
-
-  // Fallback to native Date (e.g., "Sep 3, 2025")
   const d = new Date(s);
   if (!isNaN(d.valueOf())) {
     const Y = d.getFullYear();
@@ -115,13 +115,11 @@ function parseDateStringToISO(s) {
   }
   return null;
 }
-
 function isDateCell(cell) {
   if (!cell) return false;
   if (cell.t === "n" && typeof cell.v === "number") return true;
   return !!parseDateStringToISO(cell.v);
 }
-
 function toISODateFromCell(cell) {
   if (!cell) return null;
   if (cell.t === "n" && typeof cell.v === "number") return excelSerialToISO(cell.v);
@@ -129,79 +127,59 @@ function toISODateFromCell(cell) {
 }
 
 /* ===== matricule/email helpers ===== */
-
 function looksNumericId(v) {
   const s = String(v ?? "").trim();
-  return /^\d{3,10}$/.test(s); // change if matricules are alphanum
+  return /^\d{3,10}$/.test(s);
 }
-
 function deriveMatriculeFromEmail(v) {
   const s = String(v ?? "").trim();
   const at = s.indexOf("@");
   if (at > 0) {
     const left = s.slice(0, at);
-    if (/^\d{3,10}$/.test(left)) return left;
+    if (/^[a-z0-9]{3,20}$/i.test(left)) return left;
   }
   return null;
 }
 
 /* =========================
-   Header parsing (robust)
+   Header parsing (dates + 3 meals)
    ========================= */
-
 function parseHeader(sheet) {
   const range = XLSX.utils.decode_range(sheet["!ref"]);
-  const maxScanHeaderRows = Math.min(10, range.e.r - range.s.r + 1);
+  const maxScanHeaderRows = Math.min(12, range.e.r - range.s.r + 1);
 
-  // Try two-row header (row r = dates, row r+1 = meals)
-  let planCols = [];
-  let headerRowStart = null;
-  let headerRowCount = 1;
+  const planCols = [];
+  let detectedHeaderTop = null;
 
-  for (let r = range.s.r; r <= range.s.r + maxScanHeaderRows - 2; r++) {
-    const pairs = [];
+  for (let r = range.s.r; r <= range.s.r + maxScanHeaderRows - 1; r++) {
     for (let c = range.s.c; c <= range.e.c; c++) {
       const top = sheet[XLSX.utils.encode_cell({ r, c })];
-      const bot = sheet[XLSX.utils.encode_cell({ r: r + 1, c })];
-      if (isDateCell(top)) {
-        const dateStr = toISODateFromCell(top);
-        const meal = normMealLabel(bot?.v);
-        if (dateStr && meal) {
-          pairs.push({ kind: "plan", c, date: dateStr, meal });
-        }
-      }
-    }
-    if (pairs.length >= 2) {
-      planCols = pairs;
-      headerRowStart = r;
-      headerRowCount = 2;
-      break;
-    }
-  }
+      if (!isDateCell(top)) continue;
+      const dateStr = toISODateFromCell(top);
+      if (!dateStr) continue;
 
-  // If not found, try flat headers in the first 10 rows (“YYYY-MM-DD Déjeuner”)
-  if (planCols.length === 0) {
-    for (let r = range.s.r; r <= range.s.r + maxScanHeaderRows - 1; r++) {
-      const flats = [];
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const cell = sheet[XLSX.utils.encode_cell({ r, c })];
-        const label = String(cell?.v ?? "").trim();
-        if (!label) continue;
-        const parts = label.split(/\s+/);
-        if (parts.length >= 2) {
-          const meal = normMealLabel(parts.slice(1).join(" "));
-          const iso = parseDateStringToISO(parts[0]);
-          if (meal && iso) {
-            flats.push({ kind: "plan", c, date: iso, meal });
+      // search next 1..3 rows for meal labels near this date (merged header tolerant)
+      let foundForThisDate = 0;
+      for (let rr = r + 1; rr <= Math.min(r + 3, range.e.r); rr++) {
+        for (let cc = c; cc <= Math.min(c + 5, range.e.c); cc++) {
+          const bot = sheet[XLSX.utils.encode_cell({ r: rr, c: cc })];
+          const meal = normMealLabel(bot?.v);
+          if (meal) {
+            planCols.push({ kind: "plan", c: cc, date: dateStr, meal });
+            foundForThisDate++;
           }
         }
+        if (foundForThisDate >= 3) break; // PDJ/Repas/Diner complete
       }
-      if (flats.length >= 2) {
-        planCols = flats;
-        headerRowStart = r;
-        headerRowCount = 1;
-        break;
+
+      // if nothing labeled, assume triad c..c+2 (same date)
+      if (foundForThisDate === 0) {
+        planCols.push({ kind: "plan", c: c,     date: dateStr, meal: "PETIT_DEJEUNER" });
+        if (c + 1 <= range.e.c) planCols.push({ kind: "plan", c: c + 1, date: dateStr, meal: "DEJEUNER" });
+        if (c + 2 <= range.e.c) planCols.push({ kind: "plan", c: c + 2, date: dateStr, meal: "DINER" });
       }
+
+      if (detectedHeaderTop == null) detectedHeaderTop = r;
     }
   }
 
@@ -209,248 +187,151 @@ function parseHeader(sheet) {
     throw new Error("Aucune colonne 'Date + Repas' détectée (en-têtes).");
   }
 
-  // Find "Matricule" column by synonyms or guess
+  // Find "Matricule" column by synonyms
   const matriculeSynonyms = [
-    "matricule",
-    "n matricule",
-    "numero matricule",
-    "no matricule",
-    "num etudiant",
-    "n etudiant",
-    "n° etudiant",
-    "id etudiant",
-    "mat",
+    "matricule", "n matricule", "numero matricule", "no matricule",
+    "num etudiant", "n etudiant", "n° etudiant", "id etudiant", "mat",
   ];
   let matriculeCol = null;
+  let emailCol = null;
   let matriculeHeaderRow = null;
 
-  for (let r = range.s.r; r <= range.s.r + maxScanHeaderRows - 1; r++) {
+  for (let r = 0; r <= Math.min(detectedHeaderTop ?? 3, range.e.r); r++) {
     for (let c = range.s.c; c <= range.e.c; c++) {
       const cell = sheet[XLSX.utils.encode_cell({ r, c })];
-      const n = normalizeLabel(cell?.v);
-      if (!n) continue;
-      if (matriculeSynonyms.some((key) => n.includes(key))) {
-        matriculeCol = c;
-        matriculeHeaderRow = r;
-        break;
+      const val = normalizeLabel(cell?.v);
+      if (!val) continue;
+      if (matriculeSynonyms.includes(val) && matriculeCol == null) {
+        matriculeCol = c; matriculeHeaderRow = r;
+      }
+      if ((val === "email" || val === "e mail") && emailCol == null) {
+        emailCol = c;
       }
     }
-    if (matriculeCol != null) break;
   }
 
-  // If not found, guess by numeric-like IDs
-  if (matriculeCol == null) {
-    const scores = new Map(); // c -> { count, total }
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      let count = 0,
-        total = 0;
-      for (
-        let r = headerRowStart + headerRowCount;
-        r <= Math.min(range.e.r, headerRowStart + headerRowCount + 100);
-        r++
-      ) {
-        const cell = sheet[XLSX.utils.encode_cell({ r, c })];
-        if (cell && cell.v != null) {
-          total++;
-          if (looksNumericId(cell.v)) count++;
-        }
-      }
-      if (total > 0) scores.set(c, { count, total });
-    }
-    let best = null,
-      bestRatio = 0;
-    for (const [c, { count, total }] of scores.entries()) {
-      const ratio = count / total;
-      if (count >= 10 && ratio >= 0.5 && ratio > bestRatio) {
-        best = c;
-        bestRatio = ratio;
-      }
-    }
-    if (best != null) matriculeCol = best;
-  }
+  // if still not found, try guessing first column under header as matricule
+  if (matriculeCol == null) matriculeCol = range.s.c;
 
-  // fall back: derive from Email column
-  let emailCol = null;
-  if (matriculeCol == null) {
-    const emailSyn = ["email", "e mail", "adresse email", "mail"];
-    for (let r = range.s.r; r <= range.s.r + maxScanHeaderRows - 1; r++) {
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const cell = sheet[XLSX.utils.encode_cell({ r, c })];
-        const n = normalizeLabel(cell?.v);
-        if (!n) continue;
-        if (emailSyn.some((k) => n.includes(k))) {
-          emailCol = c;
-          matriculeHeaderRow = r;
-          break;
-        }
-      }
-      if (emailCol != null) break;
-    }
-  }
+  const headerBottom = Math.max(
+    detectedHeaderTop ?? 0,
+    (matriculeHeaderRow ?? 0)
+  );
 
-  if (matriculeCol == null && emailCol == null) {
-    throw new Error("Colonne 'Matricule' introuvable.");
-  }
-
-  // First data row
-  let dataStartRow = headerRowStart + headerRowCount;
-  if (matriculeHeaderRow != null) {
-    dataStartRow = Math.max(dataStartRow, matriculeHeaderRow + 1);
-  }
-
-  return { planCols, matriculeCol, emailCol, dataStartRow };
+  return {
+    planCols,            // [{ c, date(YYYY-MM-DD), meal: 'PETIT_DEJEUNER'|'DEJEUNER'|'DINER' }]
+    matriculeCol,        // column index for Matricule
+    emailCol,            // optional
+    dataStartRow: headerBottom + 1,
+    range,
+  };
 }
 
 /* =========================
-   Import core
+   Route
    ========================= */
+ export default async function plansRoutes(fastify) {
+  const { prisma } = fastify;
 
-async function importPlansFromSheet({ sheet, prisma, kind }) {
-  const { planCols, matriculeCol, emailCol, dataStartRow } = parseHeader(sheet);
-  const range = XLSX.utils.decode_range(sheet["!ref"]);
+  fastify.post("/import", { preHandler: [fastify.auth] }, async (req, reply) => {
+    const file = await req.file(); // requires @fastify/multipart at app level
+    if (!file) return reply.code(400).send({ message: "Fichier 'file' requis (multipart/form-data)." });
 
-  // Build set of matricules (or derive from email)
-  const mats = new Set();
-  const rowToMat = new Map();
+    // read additional fields
+    const kind = req.body?.kind ? String(req.body.kind) : "student"; // 'student' | 'staff'
+    const typeFilter = kind === "staff" ? "STAFF" : "STUDENT";
 
-  for (let r = dataStartRow; r <= range.e.r; r++) {
-    let mat = null;
-    if (matriculeCol != null) {
-      const v = sheet[XLSX.utils.encode_cell({ r, c: matriculeCol })]?.v;
-      if (v != null && String(v).trim() !== "") mat = String(v).trim();
+    // read workbook
+    const buf = await file.toBuffer();
+    const wb = XLSX.read(buf, { type: "buffer" });
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    if (!ws) return reply.code(400).send({ message: "Feuille Excel introuvable." });
+
+    // parse header (dates + meals + matricule col)
+    const meta = parseHeader(ws); // robust header detection
+    const { planCols, matriculeCol, emailCol, dataStartRow, range } = meta;
+
+    // collect selections per row
+    const mats = new Set();
+    const selections = []; // { matricule, date: 'YYYY-MM-DD', meal: 'PETIT_DEJEUNER'|'DEJEUNER'|'DINER', selected: true }
+
+    for (let r = dataStartRow; r <= range.e.r; r++) {
+      const matCell = ws[XLSX.utils.encode_cell({ r, c: matriculeCol })];
+      let matricule = matCell?.v != null ? String(matCell.v).trim() : "";
+
+      if (!matricule && emailCol != null) {
+        const emailCell = ws[XLSX.utils.encode_cell({ r, c: emailCol })];
+        const derived = deriveMatriculeFromEmail(emailCell?.v);
+        if (derived) matricule = derived;
+      }
+      if (!matricule) continue;
+
+      // tolerate numeric-only ids (common student matricules)
+      if (!looksNumericId(matricule)) {
+        // keep alphanum too, but trimmed
+        matricule = String(matricule).trim();
+      }
+
+      mats.add(matricule);
+
+      for (const col of planCols) {
+        const v = ws[XLSX.utils.encode_cell({ r, c: col.c })];
+        if (!v || v.v == null || v.v === "") continue;
+        if (!isChecked(v.v)) continue; // only store checked
+        selections.push({ matricule, date: col.date, meal: col.meal, selected: true });
+      }
     }
-    if (!mat && emailCol != null) {
-      const v = sheet[XLSX.utils.encode_cell({ r, c: emailCol })]?.v;
-      mat = deriveMatriculeFromEmail(v);
-    }
-    if (mat) {
-      mats.add(mat);
-      rowToMat.set(r, mat);
-    }
-  }
 
-  // Fetch people by matricule
-  let people = [];
-  if (kind === "staff") {
-    // If you add a Staff model later, switch to prisma.staff here.
-    people = await prisma.student.findMany({
-      where: { matricule: { in: Array.from(mats) } },
-      select: { id: true, establishmentId: true, matricule: true },
+    if (mats.size === 0) {
+      return reply.code(400).send({ message: "Aucun matricule valide trouvé dans le fichier." });
+    }
+
+    // fetch persons
+    const people = await prisma.person.findMany({
+      where: { matricule: { in: Array.from(mats) }, type: typeFilter },
+      select: { id: true, matricule: true },
     });
-  } else {
-    people = await prisma.student.findMany({
-      where: { matricule: { in: Array.from(mats) } },
-      select: { id: true, establishmentId: true, matricule: true },
-    });
-  }
-  const byMat = new Map(people.map((p) => [p.matricule, p]));
 
-  let created = 0,
-    updated = 0;
-  const issues = [];
+    const byMat = new Map(people.map(p => [p.matricule, p]));
 
-  for (let r = dataStartRow; r <= range.e.r; r++) {
-    const matricule = rowToMat.get(r);
-    if (!matricule) continue;
+    // upsert meal plans
+    let created = 0, updated = 0;
+    const issues = [];
 
-    const person = byMat.get(matricule);
-    if (!person) {
-      issues.push({ row: r + 1, reason: `Matricule inconnu: ${matricule}` });
-      continue;
-    }
+    for (const sel of selections) {
+      const p = byMat.get(sel.matricule);
+      if (!p) {
+        issues.push({ matricule: sel.matricule, reason: "Matricule introuvable pour ce type (student/staff)" });
+        continue;
+      }
 
-    for (const pc of planCols) {
-      const raw = sheet[XLSX.utils.encode_cell({ r, c: pc.c })]?.v;
-      if (!isChecked(raw)) continue;
-
-      const date = new Date(pc.date + "T00:00:00.000Z");
-      const meal = pc.meal; // 'BREAKFAST' | 'LUNCH' | 'DINNER'
-
-      // Manual upsert to avoid depending on compound index name
-      const existing = await prisma.mealPlan.findFirst({
-        where: { personId: person.id, date, meal },
+      // check if exists for (personId, date, meal)
+      const exists = await prisma.mealPlan.findFirst({
+        where: { personId: p.id, date: new Date(sel.date + "T00:00:00.000Z"), meal: sel.meal },
         select: { id: true },
       });
 
-      if (existing) {
-        await prisma.mealPlan.update({
-          where: { id: existing.id },
-          data: { planned: true },
-        });
-        updated++;
-      } else {
+      if (!exists) {
         await prisma.mealPlan.create({
           data: {
-            personId: person.id,
-            establishmentId: person.establishmentId ?? null,
-            date,
-            meal,
-            planned: true,
+            personId: p.id,
+            date: new Date(sel.date + "T00:00:00.000Z"),
+            meal: sel.meal,           // PETIT_DEJEUNER | DEJEUNER | DINER
+            planned: true,             // ✅ schema field
           },
         });
         created++;
+      } else {
+        await prisma.mealPlan.update({
+          where: { id: exists.id },
+          data: { planned: true },
+        });
+        updated++;
       }
     }
-  }
 
-  return { created, updated, issues };
-}
-
-/* =========================
-   Fastify route
-   ========================= */
-
-async function routes(fastify) {
-  const { prisma } = fastify;
-
-  fastify.post("/plans/import", {
-    preHandler: [fastify.auth],
-    handler: async (req, reply) => {
-      if (!req.isMultipart()) {
-        return reply
-          .code(400)
-          .send({ message: "Content-Type must be multipart/form-data" });
-      }
-
-      // Read multipart with modern API
-      const files = [];
-      const fields = {};
-      for await (const part of req.parts()) {
-        if (part.type === "file") {
-          const chunks = [];
-          for await (const ch of part.file) chunks.push(ch);
-          files.push({
-            fieldname: part.fieldname,
-            filename: part.filename,
-            mimetype: part.mimetype,
-            buffer: Buffer.concat(chunks),
-          });
-        } else {
-          fields[part.fieldname] = part.value;
-        }
-      }
-
-      const f = files.find((x) => x.fieldname === "file");
-      if (!f) return reply.code(400).send({ message: "Aucun fichier fourni" });
-
-      const kind = (fields.kind || "student").toLowerCase();
-
-      try {
-        const wb = XLSX.read(f.buffer, { type: "buffer" });
-        const sheetName = wb.SheetNames[0];
-        const sheet = wb.Sheets[sheetName];
-        if (!sheet) return reply.code(400).send({ message: "Feuille Excel vide" });
-
-        const result = await importPlansFromSheet({ sheet, prisma, kind });
-        return reply.send(result);
-      } catch (e) {
-        fastify.log.error(e);
-        return reply
-          .code(400)
-          .send({ message: e?.message || "Import échoué" });
-      }
-    },
+    return { ok: true, created, updated, totalRows: selections.length, unresolvedMatricules: issues };
   });
 }
 
-export default fp(routes);

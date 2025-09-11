@@ -21,7 +21,7 @@ export default function StudentsImport() {
 
     try {
       setStatus("loading"); setError(null); setSummary(null);
-      const { data } = await api.post("plans/import", fd, {
+      const { data } = await api.post("/plans/import", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setSummary(data);

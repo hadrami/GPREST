@@ -6,6 +6,8 @@ import { useSelector } from "react-redux";
 import AuthLayout from "./layouts/AuthLayout.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 
+import MealPlansList from "./pages/mealplans/MealPlansList.jsx";
+
 import StudentsList from "./Students/List.jsx";
 import StudentsImport from "./Students/Import.jsx";
 import TicketsGenerate from "./Tickets/Generate.jsx";
@@ -71,6 +73,7 @@ export default function App() {
         <Route path="/dashboard" element={<Navigate to="/" replace />} />
         <Route path="/scanner" element={<Scanner />} />
         <Route path="/students" element={<StudentsList />} />
+        <Route path="mealplans" element={<MealPlansList />} />
         <Route path="/students/import" element={<StudentsImport />} />
         <Route path="/tickets/generate" element={<TicketsGenerate />} />
         {/* add more protected routes here */}
