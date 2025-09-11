@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "../../.env") });
 
 const prisma = new PrismaClient();
-const DEFAULT_EST_ID = "hahahahahahahahaha";
+const DEFAULT_EST_ID = "hahahaahahaahaha";
 
 // ---------- helpers ----------
 function stripAccents(s) {
