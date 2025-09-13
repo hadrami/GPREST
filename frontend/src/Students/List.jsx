@@ -156,27 +156,63 @@ export default function StudentsList() {
             </table>
           </div>
 
-          {/* Mobile cards */}
-          <div className="md:hidden space-y-2">
-            {rows.map((it) => (
-              <div key={it.id} className="border rounded p-3">
-                <div className="font-medium">
-                  {it.name || "—"}{" "}
-                  <span className="text-slate-500">• {it.matricule}</span>
-                </div>
-                <div className="text-sm text-slate-600">{it.email || "—"}</div>
-                <div className="text-sm">{it.establishmentName}</div>
-                <div className="flex gap-4 pt-2">
-                  <button title="Voir" onClick={() => setSelected(it)}>
-                    <EyeIcon className="w-5 h-5 text-blue-600" />
-                  </button>
-                  <button title="Supprimer" onClick={() => onDelete(it.id)}>
-                    <TrashIcon className="w-5 h-5 text-red-600" />
-                  </button>
-                </div>
-              </div>
-            ))}
+       {/* Mobile cards (same style as MealPlans) */}
+<div className="md:hidden grid gap-3">
+  {rows.map((it) => (
+    <article
+      key={it.id}
+      className="
+        relative rounded-2xl bg-white
+        shadow-lg shadow-slate-200/70
+        ring-1 ring-slate-200
+        p-4
+        transition-transform duration-150
+        active:scale-[0.99]
+      "
+    >
+      {/* tiny gradient accent to give depth */}
+      <div className="pointer-events-none absolute inset-x-0 -top-px h-1.5 rounded-t-2xl bg-gradient-to-r from-primary/80 via-accent/70 to-emerald-400" />
+
+      {/* header: name + matricule + actions */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-semibold leading-5">{it.name || "—"}</div>
+          <div className="text-xs text-slate-500">
+            Matricule&nbsp;•&nbsp;{it.matricule || "—"}
           </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            title="Voir"
+            onClick={() => setSelected(it)}
+            className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-200 hover:bg-blue-100"
+          >
+            <EyeIcon className="w-5 h-5" />
+          </button>
+          <button
+            title="Supprimer"
+            onClick={() => onDelete(it.id)}
+            className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-rose-50 text-rose-600 ring-1 ring-rose-200 hover:bg-rose-100"
+          >
+            <TrashIcon className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* info pills */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+          {it.email || "—"}
+        </span>
+        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+          {it.establishmentName}
+        </span>
+      </div>
+    </article>
+  ))}
+</div>
+
         </>
       )}
 
