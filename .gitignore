@@ -38,3 +38,6 @@ pg_backups*/
 
 # Puppeteer / Chromium cache
 backend/.local-chromium/
+4# Dev TLS certs
+.cert/
+frontend/.cert/
