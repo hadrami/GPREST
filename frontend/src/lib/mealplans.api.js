@@ -8,3 +8,8 @@ export function listMealPlans({ search = "", meal = "", mode = "all", date = "",
 export function deleteMealPlan(id) {
   return api.delete(`/mealplans/${id}`);
 }
+
+// NEW: delete all meal plans
+export function deleteAllMealPlans() {
+  return api.delete("/mealplans/delete");
+}

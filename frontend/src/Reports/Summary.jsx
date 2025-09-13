@@ -101,60 +101,47 @@ export default function Summary() {
       triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8;" }), fileName("csv"));
     }
   }
-
- async function exportPDF() {
-  const rows = buildRowsForExport();
+async function exportPDF() {
+  const rows = buildRowsForExport(); // already builds either people rows or a single totals row
   try {
     const { jsPDF } = await import("jspdf");
     await import("jspdf-autotable");
 
     const doc = new jsPDF({ unit: "pt" });
-    // Colors (soft for printing)
-    const primary = [34, 197, 94];      // soft green-ish accent if you want: change as needed
-    const headerBg = [240, 247, 255];   // very light blue
-    const headerTxt = [30, 64, 175];    // deep blue for titles
 
-    // Title block
+    // soft print palette
+    const headerBg = [242, 248, 255]; // very light
+    const headerTxt = [30, 64, 175];  // deep blue
+
+    // --- 1) tiny title (no search/filter details) ---
     doc.setFontSize(18);
     doc.setTextColor(...headerTxt);
-    doc.text("Rapport de Restauration", 40, 48);
+    doc.text("Rapport de restauration", 40, 48);
 
+    // --- 2) compact totals band (numbers + %) ---
     doc.setFontSize(11);
     doc.setTextColor(60, 60, 60);
-    doc.text(filterLine(), 40, 68);
+    const totalsLine = `Planifiés: ${planned}   •   Ont mangé: ${eaten}   •   Absents: ${noShow}   •   Taux: ${planned>0 ? Math.round((eaten/planned)*100) : 0}%`;
+    doc.text(totalsLine, 40, 70);
 
-    // KPI ribbon
-    doc.setDrawColor(...primary);
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(40, 82, 515, 54, 8, 8, "F");
-    doc.setTextColor(33, 33, 33);
-    doc.setFontSize(11);
-    doc.text(`Planifiés: ${planned}`, 54, 104);
-    doc.text(`Ont mangé: ${eaten}`, 200, 104);
-    doc.text(`Absents: ${noShow}`, 340, 104);
-    doc.text(`Taux: ${rate}%`, 460, 104);
-
-    // Table (if we have rows)
+    // --- 3) list table (if available) ---
+    // For daily + status=used/unused, rows === students list (Matricule/Nom/Établissement)
+    // For week/month or day without status, rows === a single totals row (still rendered as a 1-row table)
     if (rows.length) {
       const head = [Object.keys(rows[0])];
       const body = rows.map(r => Object.values(r));
       // @ts-ignore
       doc.autoTable({
         head, body,
-        startY: 150,
+        startY: 90,
         styles: { fontSize: 10, cellPadding: 6 },
         headStyles: {
-          fillColor: headerBg,
-          textColor: headerTxt,
-          lineWidth: 0.2,
-          lineColor: [210, 210, 210],
-          fontStyle: "bold",
+          fillColor: headerBg, textColor: headerTxt,
+          lineWidth: 0.2, lineColor: [210,210,210], fontStyle: "bold",
         },
         bodyStyles: {
-          fillColor: [255,255,255],
-          textColor: [55,65,81],
-          lineColor: [228,228,231],
-          lineWidth: 0.2,
+          fillColor: [255,255,255], textColor: [55,65,81],
+          lineColor: [228,228,231], lineWidth: 0.2,
         },
         alternateRowStyles: { fillColor: [249,250,251] },
         margin: { left: 40, right: 40 },

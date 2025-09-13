@@ -98,4 +98,16 @@ export default async function mealPlansRoutes(fastify) {
     await prisma.mealPlan.delete({ where: { id: req.params.id } });
     return { ok: true };
   });
+  fastify.delete("/delete", {
+    // optionally add auth/role guard here
+    // preHandler: [fastify.verifyAdmin], 
+  }, async (req, reply) => {
+    try {
+      const result = await prisma.mealPlan.deleteMany({});
+      return reply.send({ ok: true, deleted: result.count });
+    } catch (e) {
+      fastify.log.error(e);
+      return reply.status(500).send({ message: "Impossible d'effacer les repas." });
+    }
+  });
 }
