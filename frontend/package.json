@@ -12,9 +12,12 @@
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "@reduxjs/toolkit": "^2.8.2",
+    "@yudiel/react-qr-scanner": "^2.3.1",
     "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "axios": "^1.11.0",
     "dayjs": "^1.11.18",
+    "html5-qrcode": "^2.3.8",
     "jspdf": "^3.0.2",
     "jspdf-autotable": "^5.0.2",
     "react": "^19.1.1",
@@ -36,7 +39,8 @@
     "globals": "^16.3.0",
     "tailwindcss": "^4.1.12",
     "vite": "^7.1.5",
-    "vite-plugin-mkcert": "^1.17.8"
+    "vite-plugin-mkcert": "^1.17.8",
+    "zxing": "^0.1.2"
   },
   "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
   "main": "eslint.config.js",
