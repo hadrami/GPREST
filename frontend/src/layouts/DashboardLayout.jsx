@@ -1,3 +1,4 @@
+// src/layouts/DashboardLayout.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -16,10 +17,14 @@ export default function DashboardLayout() {
   const navigate = useNavigate();
   const { user } = useSelector((s) => s.auth);
 
+  // Normalize role to uppercase for consistency (ADMIN, SCAN_AGENT)
+  const roleUC = String(user?.role || "").toUpperCase();
+  const isAdmin = roleUC === "ADMIN";
+
   // Track screen size
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
-    const onChange = e => setIsMobile(e.matches);
+    const onChange = (e) => setIsMobile(e.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
@@ -68,7 +73,7 @@ export default function DashboardLayout() {
           "shadow-lg",
           mobileTranslate,
           desktopTranslate,
-          "transition-transform duration-300 ease-in-out"
+          "transition-transform duration-300 ease-in-out",
         ].join(" ")}
         aria-label="Navigation latérale"
       >
@@ -79,7 +84,9 @@ export default function DashboardLayout() {
               src="/assets/gp-logo.png"
               alt="GP"
               className="h-8 w-8 object-contain"
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
             />
             <span className="text-primary font-semibold">Système GP</span>
           </div>
@@ -104,19 +111,53 @@ export default function DashboardLayout() {
               </div>
               <div className="overflow-hidden">
                 <p className="text-sm font-medium leading-5 truncate">{user.name}</p>
-                <p className="text-xs text-gray-200">{user.role || "Utilisateur"}</p>
+                <p className="text-xs text-gray-200">{roleUC || "UTILISATEUR"}</p>
               </div>
             </div>
           </div>
         )}
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto py-3">
-          <NavItem to="/" label="Tableau de bord" iconPath="M3 12l2-2 7-7 7 7M9 10v10m4-10v10" onNavigate={() => setOpen(false)} />
-          <NavItem to="/students" label="Étudiants" iconPath="M5 5v14l7-4 7 4V5" onNavigate={() => setOpen(false)} />
-          <NavItem to="/mealplans" label="Plans de repas" iconPath="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8v8m0 0v8m0-8H4m8 0h8" onNavigate={() => setOpen(false)} />
-          <NavItem to="/scanner" label="Scanner" iconPath="M3 7h18M3 12h18M3 17h18" onNavigate={() => setOpen(false)} />
-          <NavItem to="/reports/summary" label="Rapports" iconPath="M9 17V7m4 10V7m5 11H5M18 7H5" onNavigate={() => setOpen(false)} />
+        <nav className="flex-1 overflow-y-auto py-3 space-y-0.5">
+          {/* Admin-only items: disabled for non-admins */}
+          <NavItem
+            to="/dashboard"
+            label="Tableau de bord"
+            iconPath="M3 12l2-2 7-7 7 7M9 10v10m4-10v10"
+            canClick={isAdmin}
+            onNavigate={() => setOpen(false)}
+          />
+          <NavItem
+            to="/students"
+            label="Étudiants"
+            iconPath="M5 5v14l7-4 7 4V5"
+            canClick={isAdmin}
+            onNavigate={() => setOpen(false)}
+          />
+          <NavItem
+            to="/mealplans"
+            label="Plans de repas"
+            iconPath="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8v8m0 0v8m0-8H4m8 0h8"
+            canClick={isAdmin}
+            onNavigate={() => setOpen(false)}
+          />
+
+          {/* Scan: allowed for ADMIN and SCAN_AGENT */}
+          <NavItem
+            to="/scan" /* if your app still uses /scanner, change to "/scanner" */
+            label="Scanner"
+            iconPath="M3 7h18M3 12h18M3 17h18"
+            canClick={true} // both roles can click
+            onNavigate={() => setOpen(false)}
+          />
+
+          <NavItem
+            to="/reports/summary"
+            label="Rapports"
+            iconPath="M9 17V7m4 10V7m5 11H5M18 7H5"
+            canClick={isAdmin}
+            onNavigate={() => setOpen(false)}
+          />
         </nav>
 
         {/* Logout */}
@@ -126,8 +167,12 @@ export default function DashboardLayout() {
             className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md text-white bg-primary-dark hover:bg-primary"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                    d="M17 16l4-4-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v1" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M17 16l4-4-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v1"
+              />
             </svg>
             <span>Déconnexion</span>
           </button>
@@ -142,7 +187,7 @@ export default function DashboardLayout() {
             ref={toggleRef}
             className="text-primary mr-2"
             aria-label={open ? "Fermer le menu" : "Ouvrir le menu"}
-            onClick={() => setOpen(v => !v)}
+            onClick={() => setOpen((v) => !v)}
           >
             <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -154,7 +199,9 @@ export default function DashboardLayout() {
               src="/assets/gp-logo.png"
               alt="GP"
               className="h-8 w-8 object-contain"
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
             />
             <h1 className="text-base md:text-lg font-semibold text-primary">Gestion de Restauration</h1>
           </div>
@@ -170,21 +217,45 @@ export default function DashboardLayout() {
   );
 }
 
-function NavItem({ to, iconPath, label, onNavigate }) {
+/**
+ * A single sidebar item that can be clickable (Link) or disabled (div).
+ * When disabled, it has "not-allowed" cursor, muted color, and no navigation.
+ */
+function NavItem({ to, iconPath, label, onNavigate, canClick, disabledTooltip = "Admins only" }) {
+  const base =
+    "group flex items-center gap-3 px-3 py-2 text-sm transition-colors rounded-md";
+  const clickable = "hover:bg-primary-dark";
+  const disabled =
+    "opacity-60 cursor-not-allowed pointer-events-none"; // prevents click & focus
+
+  const icon = (
+    <span className="shrink-0">
+      <svg className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={iconPath} />
+      </svg>
+    </span>
+  );
+
+  if (!canClick) {
+    // Non-interactive item
+    return (
+      <div className={`${base} ${disabled}`} aria-disabled="true" title={disabledTooltip}>
+        {icon}
+        <span className="whitespace-nowrap text-white/80">{label}</span>
+      </div>
+    );
+  }
+
+  // Clickable link
   return (
     <Link
       to={to}
       onClick={() => {
-        // On mobile we close after navigating; on desktop it will close if you click outside.
         onNavigate?.();
       }}
-      className="group flex items-center gap-3 px-3 py-2 text-sm hover:bg-primary-dark transition-colors"
+      className={`${base} ${clickable}`}
     >
-      <span className="shrink-0">
-        <svg className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={iconPath} />
-        </svg>
-      </span>
+      {icon}
       <span className="whitespace-nowrap text-white/90 group-hover:text-white">{label}</span>
     </Link>
   );

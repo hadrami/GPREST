@@ -105,3 +105,16 @@ b.addCase(bootstrapAuth.pending, (s) => {
 
 export const { logout, setToken, clearError } = slice.actions;
 export default slice.reducer;
+
+// Selectors
+
+export const selectUser   = (s) => s.auth.user;
+export const selectToken  = (s) => s.auth.token;
+export const selectIsAuthed = (s) => Boolean(s.auth.token);
+
+// Normalize to UPPERCASE so comparisons are consistent
+export const selectRole   = (s) => {
+  const r = s.auth.user?.role;
+  return r ? String(r).toUpperCase() : null;
+};
+export const selectIsAdmin = (s) => selectRole(s) === 'ADMIN';

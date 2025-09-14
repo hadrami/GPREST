@@ -1,7 +1,7 @@
 // src/pages/Login.jsx
 import React, { useEffect, useState } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useDispatch, useSelector} from "react-redux";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { login, clearError } from "../../redux/slices/authSlice";
 
 export default function Login() {
@@ -14,6 +14,7 @@ export default function Login() {
 
   const { status, error, token, user, requiresPasswordChange } = useSelector((s) => s.auth);
   const isLoading = status === "loading";
+  const loc = useLocation();
 
   useEffect(() => {
     if (!token) return;
@@ -29,13 +30,19 @@ export default function Login() {
   }, [dispatch]);
 
   const submit = (e) => {
-    e.preventDefault();
-    if (!username || !password) return;
-    dispatch(login({ username: username.trim(), password }))
-      .unwrap()
-      .then(() => navigate("/", { replace: true }))
-      .catch(() => {});
+      e.preventDefault(); // <-- IMPORTANT: avoid full page reload
+    dispatch(clearError());
+    const res =  dispatch(login({ username, password }));
+    if (res.meta.requestStatus === "fulfilled") {
+      const role = res.payload?.user?.role;
+      const next =
+        (loc.state && loc.state.from?.pathname) ||
+        (role === "SCAN_AGENT" ? "/scan" : "/dashboard");
+
+      navigate(next, { replace: true });
+    }
   };
+
 
   return (
     <div className="min-h-dvh w-full flex items-center justify-center p-4 bg-white">

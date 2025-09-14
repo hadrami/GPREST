@@ -5,11 +5,21 @@ async function authPlugin(fastify) {
   // Adds req.jwtVerify() guard
   fastify.decorate('auth', async (req, reply) => {
     try {
-      await req.jwtVerify();
-    } catch {
+      const payload = await req.jwtVerify();
+      req.user = payload; // { sub, role, iat, exp }
+    } catch (err) {
       return reply.code(401).send({ message: 'Unauthorized' });
     }
   });
+
+fastify.decorate('adminOnly', async (req, reply) => {
+    const roleUC = String(req.user?.role || '').toUpperCase();
+    if (roleUC !== 'ADMIN') {
+      return reply.code(403).send({ message: 'Forbidden' });
+    }
+  });
+
+
 
   // Example: block access if mustChangePassword flag is set (optional)
   fastify.decorate('enforcePasswordChange', async (req, reply) => {

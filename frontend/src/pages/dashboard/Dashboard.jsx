@@ -1,90 +1,106 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import React, { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import dayjs from "dayjs";
+import { byDay } from "../../lib/reports.api";
+
+function StatCard({ title, value, to, accent = "from-emerald-500 to-teal-500" }) {
+  return (
+    <Link
+      to={to}
+      className="group block rounded-2xl overflow-hidden shadow-lg ring-1 ring-slate-200 bg-white transition hover:-translate-y-0.5"
+    >
+      <div className={`h-1.5 bg-gradient-to-r ${accent}`} />
+      <div className="p-5 flex items-center justify-between">
+        <div>
+          <div className="text-sm text-slate-600">{title}</div>
+          <div className="mt-1 text-3xl font-semibold text-slate-900">{value}</div>
+        </div>
+        <div className="rounded-full bg-slate-50 ring-1 ring-slate-200 p-3">
+          {/* simple user/meal glyph */}
+          <svg className="w-9 h-9 text-emerald-600 group-hover:text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+              d="M12 14c-4 0-7 3-7 7h14c0-4-3-7-7-7zm0-2a5 5 0 100-10 5 5 0 000 10z" />
+          </svg>
+        </div>
+      </div>
+    </Link>
+  );
+}
 
 export default function Dashboard() {
-  const [, setShowModal] = useState(false);
-  const { user = {} } = useSelector(s => s.auth);
+  const navigate = useNavigate();
+  const today = dayjs().format("YYYY-MM-DD");
+
+  // live stats for today
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [planned, setPlanned] = useState(0);
+  const [eaten, setEaten] = useState(0);
+  const [noShow, setNoShow] = useState(0);
+  const rate = planned > 0 ? Math.round((eaten / planned) * 100) : 0;
 
   useEffect(() => {
-    if (user.isFirstLogin) setShowModal(true);
-  }, [user]);
-
-  // demo counts
-  const militairesCount = 127, professeursCount = 42, etudiantsCount = 215, employesCount = 35;
-
-  const summaryCards = [
-    { title: "Militaires",  count: militairesCount,  color: "bg-primary",     text: "text-white",        iconColor: "text-white" },
-    { title: "Professeurs", count: professeursCount, color: "bg-accent",      text: "text-primary",      iconColor: "text-white" },
-    { title: "Étudiants",   count: etudiantsCount,   color: "bg-accent/40",   text: "text-primary",      iconColor: "text-primary" },
-    { title: "Employés",    count: employesCount,    color: "bg-accent/40",   text: "text-primary",      iconColor: "text-primary" },
-  ];
+    (async () => {
+      setLoading(true); setErr(null);
+      try {
+        const { data } = await byDay({ date: today });
+        setPlanned(data?.planned ?? 0);
+        setEaten(data?.eaten ?? 0);
+        setNoShow(data?.noShow ?? 0);
+      } catch (e) {
+        setErr(e?.response?.data?.message || "Erreur de chargement");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [today]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
-      {/* Yellow welcome band */}
-      <div className="bg-secondary/20 rounded-lg shadow p-6 mb-6">
-        <h2 className="text-2xl font-bold text-primary mb-2">Bienvenue</h2>
-        <p className="text-slate-600 mb-4">Vue d’ensemble des effectifs et activités récentes.</p>
-
-        {/* Summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-          {summaryCards.map((c, i) => (
-            <div key={i} className={`${c.color} rounded-lg shadow-lg overflow-hidden`}>
-              <div className="px-4 py-5 sm:p-6 flex items-center justify-between">
-                <div>
-                  <dt className={`text-sm font-medium ${c.text}`}>{c.title}</dt>
-                  <dd className={`mt-1 text-3xl font-semibold ${c.text}`}>{c.count}</dd>
-                </div>
-                <div className="rounded-full bg-white/60 p-2">
-                  <svg className={`w-10 h-10 ${c.iconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* Welcome / context */}
+      <div className="bg-secondary/20 rounded-xl shadow p-5 mb-6">
+        <h2 className="text-2xl font-bold text-primary">Tableau de bord</h2>
+        <p className="text-slate-600">Statistiques du jour ({today}) sur les repas planifiés et consommés.</p>
       </div>
 
-      {/* Extra stats on accent tint */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-accent/40 rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-primary mb-2">Total personnel</h3>
-          <p className="text-3xl font-bold text-primary">
-            {militairesCount + professeursCount + etudiantsCount + employesCount}
-          </p>
-        </div>
+      {err && <div className="text-red-600 mb-4">{String(err)}</div>}
 
-        <div className="bg-accent/40 rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-primary mb-2">Activité récente</h3>
-          <ul className="list-disc list-inside text-slate-600">
-            <li>Mise à jour de dossier</li>
-            <li>Nouvel employé ajouté</li>
-          </ul>
-        </div>
-
-        <div className="bg-accent/40 rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-primary mb-2">Alertes</h3>
-          <div className="p-3 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 text-sm">
-            3 éléments en attente
-          </div>
-        </div>
+      {/* KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard
+          title="Planifiés (aujourd’hui)"
+          value={loading ? "…" : planned}
+          to={`/reports?tab=day&date=${today}`}
+          accent="from-sky-500 to-blue-500"
+        />
+        <StatCard
+          title="Ont mangé"
+          value={loading ? "…" : eaten}
+          to={`/reports?tab=day&date=${today}&status=used`}
+          accent="from-emerald-500 to-green-600"
+        />
+        <StatCard
+          title="Absents"
+          value={loading ? "…" : noShow}
+          to={`/reports?tab=day&date=${today}&status=unused`}
+          accent="from-rose-500 to-pink-500"
+        />
+        <StatCard
+          title="Taux de présence"
+          value={loading ? "…" : `${rate}%`}
+          to={`/reports?tab=day&date=${today}`}
+          accent="from-amber-500 to-orange-500"
+        />
       </div>
 
-      {/* Logos row (unchanged) */}
-      <div className="mt-10 mb-4 flex gap-6 justify-center flex-wrap">
-        {['ESP','IS2M','IPGEI','ISME','ISMS','ISM-BTPU'].map(code => (
-          <Link key={code} to={`/instituts/${code}`}>
-            <img
-              src={`/assets/${code}.png`}
-              alt={code}
-              className="h-16 hover:opacity-75 transition-opacity"
-              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.style.display = 'none'; }}
-            />
-          </Link>
-        ))}
+      {/* Quick links */}
+      <div className="mt-6">
+        <button
+          onClick={() => navigate(`/reports?tab=week&weekStart=${dayjs().startOf("week").format("YYYY-MM-DD")}`)}
+          className="px-3 py-2 text-sm rounded-lg border hover:bg-slate-50"
+        >
+          Ouvrir le rapport de la semaine
+        </button>
       </div>
     </div>
   );

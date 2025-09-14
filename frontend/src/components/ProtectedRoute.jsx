@@ -1,14 +1,17 @@
-// src/components/ProtectedRoute.jsx
 import React from "react";
 import { useSelector } from "react-redux";
 import { Navigate, useLocation } from "react-router-dom";
+import { selectIsAuthed, selectUser } from "../redux/slices/authSlice";
 
-/**
- * Wrap protected pages:
- * <ProtectedRoute><Dashboard /></ProtectedRoute>
- */
-export default function ProtectedRoute({ children, requireAuth = true }) {
-  const { token, user, requiresPasswordChange, status } = useSelector((s) => s.auth);
+export default function ProtectedRoute({
+  children,
+  requireAuth = true,
+  allowedRoles,           // e.g. ['ADMIN'] or ['ADMIN','SCAN_AGENT']
+  fallbackForForbidden,   // optional custom path
+}) {
+  const { token, requiresPasswordChange, status } = useSelector((s) => s.auth);
+  const user = useSelector(selectUser);
+  const isAuthed = useSelector(selectIsAuthed) ?? Boolean(token);
   const loc = useLocation();
 
   // Avoid flicker during bootstrap
@@ -21,14 +24,27 @@ export default function ProtectedRoute({ children, requireAuth = true }) {
   }
 
   if (requireAuth) {
-    // Not logged in → login
-    if (!token) {
+    if (!isAuthed) {
       return <Navigate to="/login" state={{ from: loc }} replace />;
     }
-    // Must change password → lock to /force-password-change
+
     if (requiresPasswordChange || user?.mustChangePassword) {
       if (loc.pathname !== "/force-password-change") {
         return <Navigate to="/force-password-change" replace />;
+      }
+    }
+
+    // Role gating — normalize to UPPERCASE
+    if (allowedRoles && user?.role) {
+      const roleUC = String(user.role).toUpperCase();
+      const whiteList = allowedRoles.map((r) => String(r).toUpperCase());
+      const ok = whiteList.includes(roleUC);
+
+      if (!ok) {
+        const fallback =
+          fallbackForForbidden ??
+          (roleUC === "SCAN_AGENT" ? "/scan" : "/dashboard");
+        if (loc.pathname !== fallback) return <Navigate to={fallback} replace />;
       }
     }
   }
@@ -36,11 +52,12 @@ export default function ProtectedRoute({ children, requireAuth = true }) {
   return children;
 }
 
-/**
- * Optional: GuestOnly wrapper. If already logged in, redirect to "/".
- */
 export function GuestOnly({ children }) {
-  const { token } = useSelector((s) => s.auth);
-  if (token) return <Navigate to="/" replace />;
+  const { token, user } = useSelector((s) => s.auth);
+  if (token) {
+    const roleUC = String(user?.role || "").toUpperCase();
+    const target = roleUC === "SCAN_AGENT" ? "/scan" : "/dashboard";
+    return <Navigate to={target} replace />;
+  }
   return children;
 }
