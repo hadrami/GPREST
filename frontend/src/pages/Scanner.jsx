@@ -1,7 +1,7 @@
 // src/pages/Scanner.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { Scanner as QrScanner } from "@yudiel/react-qr-scanner";
-import api from "../lib/api";
+import { scanVerify } from "../lib/scan.api";
 
 const NO_QR_TIMEOUT_MS = 8000; // auto-close if nothing detected
 const OVERLAY_CM = "1cm";      // visual guide box
@@ -10,7 +10,21 @@ export default function Scanner() {
   const [result, setResult] = useState(null);           // {status, person?, consumed?, message?}
   const [loading, setLoading] = useState(false);
   const [manualMatricule, setManualMatricule] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [meal, setMeal] = useState("");
+
+  const MEALS = [
+  { key: "PETIT_DEJEUNER",   label: "Petit déjeuner" },
+  { key: "DEJEUNER",         label: "Déjeuner" },
+  { key: "DINER",            label: "Dîner" },
+];
+const MEAL_LABELS = Object.fromEntries(MEALS.map(m => [m.key, m.label]));
+
+
+    
+
   const [scanning, setScanning] = useState(false);
+
 
   const timeoutRef = useRef(null);
   const lockedRef  = useRef(false);
@@ -20,10 +34,12 @@ export default function Scanner() {
   }, []);
 
   /* ----------------------- VERIFY API ----------------------- */
-  async function verifyMatricule(matricule, { consume }) {
+
+
+  async function verifyMatricule(matricule,meal,date,{ consume }) {
     try {
       setLoading(true);
-      const { data } = await api.post("/scan", { matricule, consume: !!consume });
+      const {data}= await scanVerify({ matricule, meal, date, consume });
       setResult(data);
     } catch (e) {
       setResult({ status: "error", message: e?.response?.data?.message || e.message || "Erreur" });
@@ -70,14 +86,14 @@ export default function Scanner() {
     lockedRef.current = true;
     clearTimeout(timeoutRef.current);
     stopScanner(); // CLOSE camera immediately
-    verifyMatricule(matricule, { consume: true });
+    verifyMatricule(matricule, meal,date, { consume: true });
   }
 
   /* -------------------- MANUAL FALLBACK --------------------- */
   function onManualVerify(consume) {
     const mat = manualMatricule.trim();
     if (!mat) return setResult({ status: "error", message: "Saisissez un matricule." });
-    verifyMatricule(mat, { consume });
+    verifyMatricule(mat,meal,date,{ consume });
   }
 
   // Result colors: green only if allowed/consumed; red otherwise
@@ -89,6 +105,13 @@ export default function Scanner() {
 
   return (
     <div className="p-4 space-y-4">
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+    <input type="date" className="border rounded px-3 py-2" value={date} onChange={(e)=>setDate(e.target.value)} />
+
+   <select className="border rounded px-3 py-2" value={meal} onChange={(e)=>setMeal(e.target.value)}>
+          {MEALS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+        </select>
+        </div>
       <h1 className="text-xl font-semibold">Scanner QR Code</h1>
 
       {/* One ergonomic primary button (light green) */}

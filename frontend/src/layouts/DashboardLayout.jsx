@@ -1,4 +1,3 @@
-// src/layouts/DashboardLayout.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -17,11 +16,9 @@ export default function DashboardLayout() {
   const navigate = useNavigate();
   const { user } = useSelector((s) => s.auth);
 
-  // Normalize role to uppercase for consistency (ADMIN, SCAN_AGENT)
   const roleUC = String(user?.role || "").toUpperCase();
   const isAdmin = roleUC === "ADMIN";
 
-  // Track screen size
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const onChange = (e) => setIsMobile(e.matches);
@@ -29,16 +26,15 @@ export default function DashboardLayout() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  // Click outside to close (desktop & mobile)
   useEffect(() => {
     if (!open) return;
     const onDocPointerDown = (e) => {
       const a = asideRef.current;
       const t = toggleRef.current;
       if (!a) return;
-      if (a.contains(e.target)) return;               // inside sidebar
-      if (t && t.contains(e.target)) return;          // the burger itself
-      setOpen(false);                                 // outside → close
+      if (a.contains(e.target)) return;
+      if (t && t.contains(e.target)) return;
+      setOpen(false);
     };
     document.addEventListener("pointerdown", onDocPointerDown, true);
     return () => document.removeEventListener("pointerdown", onDocPointerDown, true);
@@ -49,14 +45,12 @@ export default function DashboardLayout() {
     navigate("/login");
   };
 
-  // Translate classes (avoid conflicting md: classes)
   const mobileTranslate = open ? "translate-x-0" : "-translate-x-full";
   const desktopTranslate = open ? "md:translate-x-0" : "md:-translate-x-full";
   const mainOffset = open ? "md:ml-64" : "md:ml-0";
 
   return (
     <div className="min-h-screen bg-white flex">
-      {/* Mobile overlay */}
       {open && isMobile && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -65,7 +59,6 @@ export default function DashboardLayout() {
         />
       )}
 
-      {/* Sidebar */}
       <aside
         ref={asideRef}
         className={[
@@ -77,7 +70,6 @@ export default function DashboardLayout() {
         ].join(" ")}
         aria-label="Navigation latérale"
       >
-        {/* Sidebar header */}
         <div className="h-16 flex items-center justify-between px-3 bg-secondary">
           <div className="flex items-center gap-2">
             <img
@@ -90,7 +82,6 @@ export default function DashboardLayout() {
             />
             <span className="text-primary font-semibold">Système GP</span>
           </div>
-          {/* Close button (mobile) */}
           <button
             className="md:hidden text-primary"
             aria-label="Fermer le menu"
@@ -102,7 +93,6 @@ export default function DashboardLayout() {
           </button>
         </div>
 
-        {/* User badge */}
         {user && (
           <div className="px-3 py-3 bg-primary-dark border-b border-primary/60">
             <div className="flex items-center gap-3">
@@ -117,9 +107,7 @@ export default function DashboardLayout() {
           </div>
         )}
 
-        {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-3 space-y-0.5">
-          {/* Admin-only items: disabled for non-admins */}
           <NavItem
             to="/dashboard"
             label="Tableau de bord"
@@ -141,16 +129,13 @@ export default function DashboardLayout() {
             canClick={isAdmin}
             onNavigate={() => setOpen(false)}
           />
-
-          {/* Scan: allowed for ADMIN and SCAN_AGENT */}
           <NavItem
-            to="/scan" /* if your app still uses /scanner, change to "/scanner" */
+            to="/scan"
             label="Scanner"
             iconPath="M3 7h18M3 12h18M3 17h18"
-            canClick={true} // both roles can click
+            canClick={true}
             onNavigate={() => setOpen(false)}
           />
-
           <NavItem
             to="/reports/summary"
             label="Rapports"
@@ -160,7 +145,6 @@ export default function DashboardLayout() {
           />
         </nav>
 
-        {/* Logout */}
         <div className="p-3 border-t border-primary/60">
           <button
             onClick={doLogout}
@@ -179,34 +163,39 @@ export default function DashboardLayout() {
         </div>
       </aside>
 
-      {/* Main column (shifts on desktop only when open) */}
       <div className={`flex-1 min-w-0 transition-[margin] duration-300 ${mainOffset}`}>
-        {/* Top bar */}
-        <header className="h-16 sticky top-0 z-30 bg-secondary shadow flex items-center px-3">
-          <button
-            ref={toggleRef}
-            className="text-primary mr-2"
-            aria-label={open ? "Fermer le menu" : "Ouvrir le menu"}
-            onClick={() => setOpen((v) => !v)}
-          >
-            <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
+        {/* Top bar with centered title + right logo */}
+        <header className="h-16 sticky top-0 z-30 bg-secondary shadow">
+          <div className="px-3 h-full grid grid-cols-3 items-center">
+            {/* Left: burger */}
+            <button
+              ref={toggleRef}
+              className="text-primary justify-self-start"
+              aria-label={open ? "Fermer le menu" : "Ouvrir le menu"}
+              onClick={() => setOpen((v) => !v)}
+            >
+              <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
 
-          <div className="flex items-center gap-2 mx-auto md:mx-0">
-            <img
-              src="/assets/gp-logo.png"
-              alt="GP"
-              className="h-8 w-8 object-contain"
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-              }}
-            />
-            <h1 className="text-base md:text-lg font-semibold text-primary">Gestion de Restauration</h1>
+            {/* Center: title */}
+            <h1 className="text-base md:text-lg font-semibold text-primary text-center">
+              Gestion de Restauration
+            </h1>
+
+            {/* Right: small logo (same as Login) */}
+            <div className="justify-self-end">
+              <img
+                src="/assets/gp-logo.png"
+                alt="Logo"
+                className="h-8 w-8 object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            </div>
           </div>
-
-          <div className="ml-auto" />
         </header>
 
         <main className="p-4 md:p-6">
@@ -217,16 +206,10 @@ export default function DashboardLayout() {
   );
 }
 
-/**
- * A single sidebar item that can be clickable (Link) or disabled (div).
- * When disabled, it has "not-allowed" cursor, muted color, and no navigation.
- */
 function NavItem({ to, iconPath, label, onNavigate, canClick, disabledTooltip = "Admins only" }) {
-  const base =
-    "group flex items-center gap-3 px-3 py-2 text-sm transition-colors rounded-md";
+  const base = "group flex items-center gap-3 px-3 py-2 text-sm transition-colors rounded-md";
   const clickable = "hover:bg-primary-dark";
-  const disabled =
-    "opacity-60 cursor-not-allowed pointer-events-none"; // prevents click & focus
+  const disabled = "opacity-60 cursor-not-allowed pointer-events-none";
 
   const icon = (
     <span className="shrink-0">
@@ -237,7 +220,6 @@ function NavItem({ to, iconPath, label, onNavigate, canClick, disabledTooltip = 
   );
 
   if (!canClick) {
-    // Non-interactive item
     return (
       <div className={`${base} ${disabled}`} aria-disabled="true" title={disabledTooltip}>
         {icon}
@@ -246,7 +228,6 @@ function NavItem({ to, iconPath, label, onNavigate, canClick, disabledTooltip = 
     );
   }
 
-  // Clickable link
   return (
     <Link
       to={to}

@@ -16,7 +16,6 @@ import  api  from "../../lib/api";
  } from "@heroicons/react/24/outline";
 
 const MEALS = [
-  { key: "",                 label: "Tous les repas" },
   { key: "PETIT_DEJEUNER",   label: "Petit déjeuner" },
   { key: "DEJEUNER",         label: "Déjeuner" },
   { key: "DINER",            label: "Dîner" },
@@ -124,8 +123,8 @@ function rowsForExport() {
 
 function criteriaLine() {
   const modeLabel = { all: "toute période", day: `le ${date}`, week: `semaine du ${date}`, month: `mois de ${date.slice(0,7)}` }[mode];
-  const mealLabel = MEAL_LABELS[meal] || "Tous les repas";
-  return `${meal ? mealLabel : "Tous les repas"} — ${modeLabel}${q ? ` — recherche: ${q}` : ""}`;
+  const mealLabel = MEAL_LABELS[meal] || "Déjeuner";
+  return `${meal ? mealLabel : "Déjeuner"} — ${modeLabel}${q ? ` — recherche: ${q}` : ""}`;
 }
 
 async function eraseAll() {
@@ -212,6 +211,7 @@ async function exportMealPlansPDF() {
         </div>
 
         <input type="date" className="border rounded px-3 py-2" value={date} onChange={(e)=>setDate(e.target.value)} />
+
 
         <div className="flex items-center gap-1">
           {["all","day","week","month"].map(m => (
