@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
+import { BanknotesIcon } from "@heroicons/react/24/outline"; // ⟵ ajouter cet import
+
 import { logout } from "../redux/slices/authSlice";
 
 export default function DashboardLayout() {
@@ -117,7 +119,7 @@ export default function DashboardLayout() {
           />
           <NavItem
             to="/students"
-            label="Étudiants"
+            label="Personnels & Étudiants"
             iconPath="M5 5v14l7-4 7 4V5"
             canClick={isAdmin}
             onNavigate={() => setOpen(false)}
@@ -143,6 +145,13 @@ export default function DashboardLayout() {
             canClick={isAdmin}
             onNavigate={() => setOpen(false)}
           />
+
+          <NavItem
+  to="/facturation"              // route placeholder, on branchera plus tard
+  label="Calcul des montants à facturer"
+  icon={<BanknotesIcon className="w-5 h-5" />}
+/>
+
         </nav>
 
         <div className="p-3 border-t border-primary/60">

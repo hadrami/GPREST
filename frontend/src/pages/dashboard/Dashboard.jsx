@@ -1,51 +1,72 @@
+// src/pages/dashboard/Dashboard.jsx
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import dayjs from "dayjs";
 import { byDay } from "../../lib/reports.api";
 
-function StatCard({ title, value, to, accent = "from-emerald-500 to-teal-500" }) {
+// Petite carte stat non cliquable (on supprime les liens individuels)
+function StatCard({ title, value, accent = "from-emerald-500 to-teal-500" }) {
   return (
-    <Link
-      to={to}
-      className="group block rounded-2xl overflow-hidden shadow-lg ring-1 ring-slate-200 bg-white transition hover:-translate-y-0.5"
-    >
+    <div className="group block rounded-2xl overflow-hidden shadow-sm ring-1 ring-slate-200 bg-white">
       <div className={`h-1.5 bg-gradient-to-r ${accent}`} />
-      <div className="p-5 flex items-center justify-between">
-        <div>
-          <div className="text-sm text-slate-600">{title}</div>
-          <div className="mt-1 text-3xl font-semibold text-slate-900">{value}</div>
-        </div>
-        <div className="rounded-full bg-slate-50 ring-1 ring-slate-200 p-3">
-          <svg className="w-9 h-9 text-emerald-600 group-hover:text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-              d="M12 14c-4 0-7 3-7 7h14c0-4-3-7-7-7zm0-2a5 5 0 100-10 5 5 0 000 10z" />
-          </svg>
-        </div>
+      <div className="p-5">
+        <div className="text-sm text-slate-600">{title}</div>
+        <div className="mt-1 text-3xl font-semibold text-slate-900">{value}</div>
       </div>
-    </Link>
+    </div>
   );
 }
 
 export default function Dashboard() {
   const today = dayjs().format("YYYY-MM-DD");
-
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
-  const [planned, setPlanned] = useState(0);
-  const [eaten, setEaten] = useState(0);
-  const [noShow, setNoShow] = useState(0);
-  const rate = planned > 0 ? Math.round((eaten / planned) * 100) : 0;
+
+  // Stats aujourd’hui
+  const [planned, setPlanned]   = useState(0);
+  const [eaten, setEaten]       = useState(0);
+  const [noShow, setNoShow]     = useState(0);
+
+  // Stats 15 jours
+  const [planned15, setPlanned15] = useState(0);
+  const [eaten15, setEaten15]     = useState(0);
+  const [noShow15, setNoShow15]   = useState(0);
+  const start15 = dayjs(today).subtract(14, "day"); // 15 jours glissants (inclus)
+  const end15   = dayjs(today);
 
   useEffect(() => {
     (async () => {
-      setLoading(true); setErr(null);
       try {
-        const { data } = await byDay({ date: today });
-        setPlanned(data?.planned ?? 0);
-        setEaten(data?.eaten ?? 0);
-        setNoShow(data?.noShow ?? 0);
+        setLoading(true);
+        setErr(null);
+
+        // --- Aujourd’hui
+        const { data: d0 } = await byDay({ date: today });
+        setPlanned(d0?.planned ?? 0);
+        setEaten(d0?.eaten ?? 0);
+        setNoShow(d0?.noShow ?? 0);
+
+        // --- 15 derniers jours (simple agrégat en 15 appels; à remplacer par un endpoint dédié si dispo)
+        const dates = Array.from({ length: 15 }, (_, i) =>
+          dayjs(today).subtract(i, "day").format("YYYY-MM-DD")
+        );
+
+        const results = await Promise.allSettled(
+          dates.map((dt) => byDay({ date: dt }))
+        );
+
+        let p = 0, e = 0, n = 0;
+        for (const r of results) {
+          if (r.status === "fulfilled") {
+            const v = r.value?.data || {};
+            p += Number(v.planned || 0);
+            e += Number(v.eaten || 0);
+            n += Number(v.noShow || 0);
+          }
+        }
+        setPlanned15(p); setEaten15(e); setNoShow15(n);
       } catch (e) {
-        setErr(e?.response?.data?.message || "Erreur de chargement");
+        setErr(e?.response?.data?.message || e.message || "Erreur de chargement");
       } finally {
         setLoading(false);
       }
@@ -53,48 +74,54 @@ export default function Dashboard() {
   }, [today]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      <div className="bg-secondary/20 rounded-xl shadow p-5 mb-6">
-        <h2 className="text-2xl font-bold text-primary">Tableau de bord</h2>
-        <p className="text-slate-600">Statistiques du jour ({today}) sur les repas planifiés et consommés.</p>
-      </div>
+    <div className="p-4 space-y-6">
+      <h1 className="text-2xl font-semibold">Tableau de bord</h1>
 
-      {err && <div className="text-red-600 mb-4">{String(err)}</div>}
+      {err && (
+        <div className="text-red-700 bg-red-50 border border-red-200 rounded p-3">
+          {String(err)}
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard
-          title="Planifiés (aujourd’hui)"
-          value={loading ? "…" : planned}
-          to={`/reports/summary?tab=day&date=${today}`}
-          accent="from-sky-500 to-blue-500"
-        />
-        <StatCard
-          title="Ont mangé"
-          value={loading ? "…" : eaten}
-          to={`/reports/summary?tab=day&date=${today}&status=used`}
-          accent="from-emerald-500 to-green-600"
-        />
-        <StatCard
-          title="Absents"
-          value={loading ? "…" : noShow}
-          to={`/reports/summary?tab=day&date=${today}&status=unused`}
-          accent="from-rose-500 to-pink-500"
-        />
-        <StatCard
-          title="Taux de présence"
-          value={loading ? "…" : `${rate}%`}
-          to={`/reports/summary?tab=day&date=${today}`}
-          accent="from-amber-500 to-orange-500"
-        />
-      </div>
+      {/* === Stats du jour === */}
+      <section>
+        <div className="mb-2 text-sm text-slate-600">
+          Statistiques du jour&nbsp;: <b>{dayjs(today).format("DD/MM/YYYY")}</b>
+        </div>
+        {loading ? (
+          <div className="text-slate-500">Chargement…</div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <StatCard title="Planifiés aujourd’hui" value={planned}   accent="from-blue-500 to-indigo-500" />
+            <StatCard title="Servis aujourd’hui"     value={eaten}     accent="from-emerald-500 to-teal-500" />
+            <StatCard title="Absents aujourd’hui"    value={noShow}    accent="from-rose-500 to-pink-500" />
+          </div>
+        )}
+      </section>
 
-      {/* Quick link: “Rapport de la semaine” goes to Rapports */}
-      <div className="mt-6">
+      {/* === Stats 15 jours === */}
+      <section>
+        <div className="mb-2 text-sm text-slate-600">
+          Sur <b>15 jours</b> — du <b>{start15.format("DD/MM/YYYY")}</b> au <b>{end15.format("DD/MM/YYYY")}</b>
+        </div>
+        {loading ? (
+          <div className="text-slate-500">Calcul…</div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <StatCard title="Planifiés (15 j)" value={planned15} accent="from-blue-500 to-indigo-500" />
+            <StatCard title="Servis (15 j)"     value={eaten15}   accent="from-emerald-500 to-teal-500" />
+            <StatCard title="Absents (15 j)"    value={noShow15}  accent="from-rose-500 to-pink-500" />
+          </div>
+        )}
+      </section>
+
+      {/* === Lien unique vers la page Rapports === */}
+      <div className="pt-2">
         <Link
-          to={`/reports/summary?tab=week&weekStart=${dayjs().startOf("week").format("YYYY-MM-DD")}`}
-          className="px-3 py-2 text-sm rounded-lg border hover:bg-slate-50"
+          to={`/reports/summary?tab=15d&from=${start15.format("YYYY-MM-DD")}&to=${end15.format("YYYY-MM-DD")}`}
+          className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-slate-50"
         >
-          Rapport de la semaine
+          Pour plus de statistiques et de détails, consultez la page Rapports →
         </Link>
       </div>
     </div>

@@ -4,17 +4,30 @@ import {
   apiListStudents, apiDeleteStudent, apiImportStudents
 } from "../../lib/students.api";
 
+// inside createAsyncThunk payloadCreator
 export const fetchStudents = createAsyncThunk(
   "students/fetch",
-  async ({ search = "", page = 1, pageSize = 20, establishmentId } = {}, { rejectWithValue }) => {
+  async (
+    { search = "", page = 1, pageSize = 20, establishmentId = "", personType = "" } = {},
+    { rejectWithValue }
+  ) => {
     try {
-      const { data } = await apiListStudents({ search, page, pageSize, establishmentId });
+      // Map UI value -> backend value
+      const type =
+        personType.toLowerCase() === "student"
+          ? "STUDENT"
+          : personType.toLowerCase() === "staff"
+          ? "STAFF"
+          : "";
+
+      const { data } = await apiListStudents({ search, page, pageSize, establishmentId, type });
       return data;
     } catch (e) {
       return rejectWithValue(e.response?.data?.message || e.message);
     }
   }
 );
+
 
 export const importStudents = createAsyncThunk(
   "students/import",

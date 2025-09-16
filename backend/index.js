@@ -68,6 +68,10 @@ await fastify.register(async function (instance) {
   const plans = (await import("./src/routes/plans.js")).default || (await import("./src/routes/plans.js"));
   await instance.register(plans, { prefix: "/api/plans" });
 
+  const establishments = (await import("./src/routes/establishments.js")).default || (await import("./src/routes/establishments.js"));
+  await instance.register(establishments, { prefix: "/api/establishments" });
+
+
   const reports = (await import("./src/routes/reports.js")).default || (await import("./src/routes/reports.js"));
   await instance.register(reports, { prefix: "/api/reports" });
 
