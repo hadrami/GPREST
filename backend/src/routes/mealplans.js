@@ -56,7 +56,7 @@ export default async function mealPlansRoutes(fastify) {
         establishmentId = "",
         type = "",
         page = 1,
-        pageSize = 20,
+        pageSize = 1000,
         order = "desc",
       } = req.query || {};
 
@@ -69,13 +69,13 @@ export default async function mealPlansRoutes(fastify) {
       const toDate = parseYMD(to);
 
       if (from && !fromDate) {
-        return reply.code(400).send({ message: 'Paramètre "from" invalide. Format attendu: YYYY-MM-DD.' });
+        return reply.code(400).send({ message: 'Paramètre "Date de Debut" invalide. Format attendu: YYYY-MM-DD.' });
       }
       if (to && !toDate) {
-        return reply.code(400).send({ message: 'Paramètre "to" invalide. Format attendu: YYYY-MM-DD.' });
+        return reply.code(400).send({ message: 'Paramètre "Date de Fin" invalide. Format attendu: YYYY-MM-DD.' });
       }
       if (fromDate && toDate && toDate <= fromDate) {
-        return reply.code(400).send({ message: '"to" doit être strictement supérieur à "from".' });
+        return reply.code(400).send({ message: '"Date de Debut" doit être strictement supérieur à "Date de Fin".' });
       }
 
       const dateFilter =
@@ -107,6 +107,7 @@ export default async function mealPlansRoutes(fastify) {
       const where = {
         ...(mealNorm ? { meal: mealNorm } : {}),
         ...(dateFilter ? { date: dateFilter } : {}),
+        ...(establishmentId || type || search ? { person: personFilter } : {}),
         ...(personFilter ? { person: personFilter } : {}),
       };
 
@@ -118,7 +119,8 @@ export default async function mealPlansRoutes(fastify) {
           include: {
             person: {
               include: {
-                establishment: true,
+                establishment: { select: { id: true, name: true } }, // include id
+
               },
             },
           },

@@ -119,7 +119,7 @@ export default function DashboardLayout() {
           />
           <NavItem
             to="/students"
-            label="Personnels & Étudiants"
+            label="DB Personnes"
             iconPath="M5 5v14l7-4 7 4V5"
             canClick={isAdmin}
             onNavigate={() => setOpen(false)}
@@ -147,8 +147,8 @@ export default function DashboardLayout() {
           />
 
           <NavItem
-  to="/facturation"              // route placeholder, on branchera plus tard
-  label="Calcul des montants à facturer"
+  to="/prestations"              // route placeholder, on branchera plus tard
+  label="Prestations"
   icon={<BanknotesIcon className="w-5 h-5" />}
 />
 

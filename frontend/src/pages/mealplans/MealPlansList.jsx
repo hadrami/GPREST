@@ -1,272 +1,370 @@
 // src/pages/mealplans/MealPlansList.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import { listMealPlans } from "../../lib/mealplans.api";
 import {
-  listMealPlans,            // doit accepter: { search, meal, from, to, establishmentId, type, page, pageSize }
-  deleteAllMealPlans,       // optionnel (toolbar)
-} from "../../lib/mealplans.api";
-import api from "../../lib/api";
+  MagnifyingGlassIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  ArrowDownTrayIcon,
+} from "@heroicons/react/24/outline";
+// Use the same helper path you use in Persons list
 import { apiListEstablishments } from "../../lib/establissments.api";
 
-import {
-  EyeIcon,
-  MagnifyingGlassIcon,
-  ArrowPathIcon,       // Réinitialiser
-  ArrowUpTrayIcon,     // Importer
-  ArrowDownTrayIcon,   // Export PDF
-  TrashIcon,           // Effacer tout (conserve en toolbar, pas sur les lignes)
-} from "@heroicons/react/24/outline";
-
 const MEALS = [
-  { key: "",                 label: "Tous les repas" },
-  { key: "PETIT_DEJEUNER",   label: "Petit déjeuner" },
-  { key: "DEJEUNER",         label: "Déjeuner" },
-  { key: "DINER",            label: "Dîner" },
+  { key: "",               label: "Tous les repas" },
+  { key: "PETIT_DEJEUNER", label: "Petit déjeuner" },
+  { key: "DEJEUNER",       label: "Déjeuner" },
+  { key: "DINER",          label: "Dîner" },
+];
+const TYPES = [
+  { key: "",        label: "Tous types" },
+  { key: "STUDENT", label: "Étudiant" },
+  { key: "STAFF",   label: "Personnel" },
 ];
 const MEAL_LABELS = Object.fromEntries(MEALS.map((m) => [m.key, m.label]));
+const APP_GREEN = "bg-emerald-500"; // app green accent (adjust if you have a custom class)
 
-const PERSON_TYPES = [
-  { value: "", label: "Tous les types" },
-  { value: "student", label: "Étudiant" },
-  { value: "staff", label: "Personnel" },
-];
+function iso(d) {
+  try { return new Date(d).toISOString().slice(0, 10); } catch { return String(d || ""); }
+}
+
+// Simple inline funnel icon (swap if you prefer your icon set)
+const FunnelIcon = (props) => (
+  <svg viewBox="0 0 24 24" width={20} height={20} {...props}>
+    <path d="M3 5a1 1 0 0 1 1-1h16a1 1 0 0 1 .8 1.6l-6.8 9.06V20a1 1 0 0 1-1.45.9l-3-1.5A1 1 0 0 1 9 18v-3.34L2.2 6.6A1 1 0 0 1 3 5z" />
+  </svg>
+);
+
+// Mobile bottom sheet that exposes the SAME filters as desktop
+function MobileFiltersSheet({
+  open,
+  onClose,
+  meal, setMeal,
+
+  establishmentId, setEstablishmentId,
+  personType, setPersonType,
+  order, setOrder,
+  establishmentOptions,
+  estabsLoading,
+  onApply,
+}) {
+  return (
+    <div
+      aria-hidden={!open}
+      className={`fixed inset-0 z-50 md:hidden ${open ? '' : 'pointer-events-none'}`}
+    >
+      {/* Backdrop */}
+      <div
+        className={`absolute inset-0 bg-black/40 transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`}
+        onClick={onClose}
+      />
+      {/* Sheet */}
+      <div
+        className={`absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-xl p-4 transition-transform
+        ${open ? 'translate-y-0' : 'translate-y-full'}`}
+      >
+        <div className="h-1 w-12 bg-gray-300 rounded-full mx-auto mb-3" />
+        <h3 className="text-base font-semibold mb-3">Filtres</h3>
+
+        <div className="space-y-3">
+         
+          {/* Meal */}
+          <div>
+            <label className="text-xs text-gray-600">Repas</label>
+            <select
+              value={meal}
+              onChange={(e) => setMeal(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2"
+            >
+              {MEALS.map((m) => (
+                <option key={m.key} value={m.key}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Establishment */}
+          <div>
+            <label className="text-xs text-gray-600">Établissement</label>
+            <select
+              value={establishmentId}
+              onChange={(e) => setEstablishmentId(e.target.value)}
+              disabled={estabsLoading}
+              className="w-full border rounded-lg px-3 py-2"
+            >
+              {establishmentOptions.map((o) => (
+                <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Type */}
+          <div>
+            <label className="text-xs text-gray-600">Type</label>
+            <select
+              value={personType}
+              onChange={(e) => setPersonType(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2"
+            >
+              {TYPES.map((t) => (
+                <option key={t.key} value={t.key}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Order (if needed) */}
+          <div>
+            <label className="text-xs text-gray-600">Ordre</label>
+            <select
+              value={order}
+              onChange={(e) => setOrder(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2"
+            >
+              <option value="desc">Plus récents</option>
+              <option value="asc">Plus anciens</option>
+            </select>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={() => { onApply(); onClose(); }}
+              className="flex-1 rounded-xl px-4 py-2 bg-emerald-600 text-white font-medium"
+            >
+              Appliquer
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded-xl px-4 py-2 border"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function MealPlansList() {
-  const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
+  // server data (raw rows page by page)
+  const [items, setItems]   = useState([]);
+  const [total, setTotal]   = useState(0);
+  const [page, setPage]     = useState(1);
+  const [pageSize]          = useState(20);
 
-  // --- Filtres (réactifs)
-  const [q, setQ] = useState("");
-  const [meal, setMeal] = useState("");
-  const [establishmentId, setEstablishmentId] = useState("");
-  const [personType, setPersonType] = useState(""); // "student" | "staff" | ""
-  const [from, setFrom] = useState("");             // YYYY-MM-DD
-  const [to, setTo] = useState("");                 // YYYY-MM-DD
+  // filters (auto-apply; no buttons)
+  const today = new Date().toISOString().slice(0, 10);
+  const [q, setQ]                   = useState("");
+  const [meal, setMeal]             = useState("");
+  const [fromDate, setFromDate]     = useState(today);
+  const [toDate, setToDate]         = useState(today);
+  const [establishmentId, setEstablishmentId] = useState(""); // dropdown value ("" = all)
+  const [personType, setPersonType] = useState("");            // STUDENT | STAFF | ""
+  const [order, setOrder]           = useState("desc");
 
-  // Établissements (chargés une fois depuis l’API pour avoir la liste complète)
-  const [estabs, setEstabs] = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [err, setErr]               = useState(null);
+
+  // UI: expand per person
+  const [open, setOpen] = useState(() => new Set());
+
+  // Establishments list (for select) — same approach as Persons list (+ fallback)
+  const [estabs, setEstabs]               = useState([]);
   const [estabsLoading, setEstabsLoading] = useState(true);
-  const [estabsError, setEstabsError] = useState(null);
+  const [estabsError, setEstabsError]     = useState(null);
 
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState(null);
+  // Mobile filters visibility
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
-  const [selected, setSelected] = useState(null); // modal
+  // debounce to avoid hammering the API
   const debounceRef = useRef(null);
 
-  // --- Import (Excel)
-  const [showImport, setShowImport] = useState(false);
-  const [impFile, setImpFile] = useState(null);
-  const [impKind, setImpKind] = useState("student"); // student | staff
-  const [impBusy, setImpBusy] = useState(false);
-  const [impError, setImpError] = useState(null);
-  const [impSummary, setImpSummary] = useState(null);
+  // ----- Fetch establishments once (same pattern as Persons list) -----
+  useEffect(() => {
+    const run = async () => {
+      setEstabsLoading(true);
+      setEstabsError(null);
+      try {
+        const { data } = await apiListEstablishments({ page: 1, pageSize: 1000 });
+        const items = Array.isArray(data?.items) ? data.items : [];
+        // Sort by name for UX
+        const sorted = items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setEstabs(sorted);
+      } catch (e) {
+        setEstabsError(e?.response?.data?.message || e.message || "Erreur établissements");
+      } finally {
+        setEstabsLoading(false);
+      }
+    };
+    run();
+  }, []);
 
-  // ===== Helpers =====
-  const typeParam =
-    personType.toLowerCase() === "student"
-      ? "STUDENT"
-      : personType.toLowerCase() === "staff"
-      ? "STAFF"
-      : "";
-
-  const fetchData = async ({ resetPage = false } = {}) => {
-    setLoading(true);
-    setErr(null);
+  // ----- Fetch page of mealplans from server (server-side filters) -----
+  async function fetchData({ resetPage = false } = {}) {
+    setLoading(true); setErr(null);
     try {
       const { data } = await listMealPlans({
         search: q,
         meal,
-        from: from || undefined,
-        to: to || undefined,
-        establishmentId: establishmentId || undefined,
-        type: typeParam || undefined,
+        from: fromDate || "",
+        to: toDate || "",
+        establishmentId: establishmentId || "",
+        type: personType || "",
         page: resetPage ? 1 : page,
         pageSize,
+        order: order || "desc",
       });
       setItems(data.items || []);
-      setTotal(data.total || 0);
+      setTotal(Number(data.total || 0));
       if (resetPage) setPage(1);
+
+      // Fallback: if establishments API returned nothing, derive unique from results
+      if ((!estabs || estabs.length === 0) && Array.isArray(data.items)) {
+        const uniq = new Map();
+        for (const it of data.items) {
+          const e = it?.person?.establishment;
+          if (e?.id && !uniq.has(e.id)) uniq.set(e.id, { id: e.id, name: e.name || "—" });
+        }
+        if (uniq.size > 0) setEstabs(Array.from(uniq.values()).sort((a,b)=> (a.name||"").localeCompare(b.name||"")));
+      }
     } catch (e) {
       setErr(e?.response?.data?.message || e.message);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  // fetch ALL establishments once
-  useEffect(() => {
-    (async () => {
-      setEstabsLoading(true);
-      setEstabsError(null);
-      try {
-        const { data } = await apiListEstablishments({ page: 1, pageSize: 1000 });
-        setEstabs(Array.isArray(data?.items) ? data.items : []);
-      } catch (e) {
-        setEstabsError(e?.response?.data?.message || e.message);
-      } finally {
-        setEstabsLoading(false);
-      }
-    })();
-  }, []);
+  // initial + on page change
+  useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, [page, pageSize]);
 
-  // initial fetch
-  useEffect(() => {
-    fetchData({ resetPage: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageSize]);
-
-  // reactive search on any filter change
+  // auto-apply: debounce when key filters change
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      fetchData({ resetPage: true });
-    }, 300);
+    debounceRef.current = setTimeout(() => fetchData({ resetPage: true }), 300);
     return () => clearTimeout(debounceRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, meal, establishmentId, personType, from, to]);
+    // eslint-disable-next-line
+  }, [q, meal, fromDate, toDate, establishmentId, personType, order]);
 
-  function resetFilters() {
-    setQ("");
-    setMeal("");
-    setEstablishmentId("");
-    setPersonType("");
-    setFrom("");
-    setTo("");
-    fetchData({ resetPage: true });
-  }
-
-  async function submitImport(e) {
-    e?.preventDefault?.();
-    if (!impFile) return;
-    const fd = new FormData();
-    fd.append("file", impFile);
-    fd.append("kind", impKind);
-    try {
-      setImpBusy(true);
-      setImpError(null);
-      setImpSummary(null);
-      const { data } = await api.post("/plans/import", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setImpSummary(data);
-      await fetchData({ resetPage: true });
-    } catch (e) {
-      setImpError(e?.response?.data?.message || e.message);
-    } finally {
-      setImpBusy(false);
-    }
-  }
-
-  async function eraseAll() {
-    if (!window.confirm("⚠️ Cette action va SUPPRIMER TOUS les choix de repas. Continuer ?")) return;
-    try {
-      await deleteAllMealPlans();
-      await fetchData({ resetPage: true });
-      alert("Tous les choix de repas ont été supprimés.");
-    } catch (e) {
-      alert(e?.response?.data?.message || e.message);
-    }
-  }
-
-  // ===== Export PDF =====
-  function rowsForExport() {
-    return items.map((it) => {
+  // ----- Group by person (matricule) -----
+  const grouped = useMemo(() => {
+    const m = new Map();
+    for (const it of items) {
       const p = it.person || {};
-      return {
-        Date: new Date(it.date).toISOString().slice(0, 10),
-        Repas: MEAL_LABELS[it.meal] || it.meal,
-        Matricule: p.matricule || "",
-        Nom: p.name || "",
-        Établissement: p.establishment?.name || "—",
-      };
-    });
-  }
-  function criteriaLine() {
-    const mealLabel = MEAL_LABELS[meal] || "Tous les repas";
-    const range =
-      from && to
-        ? `du ${from} au ${to}`
-        : from
-        ? `à partir du ${from}`
-        : to
-        ? `jusqu'au ${to}`
-        : "toute période";
-    return `${meal ? mealLabel : "Tous les repas"} — ${range}${q ? ` — recherche: ${q}` : ""}`;
-  }
-  async function exportMealPlansPDF() {
-    const rows = rowsForExport();
-    try {
-      const doc = new jsPDF({ unit: "pt" });
-      const headerBg = [242, 248, 255];
-      const headerTxt = [30, 64, 175];
-
-      doc.setFontSize(18);
-      doc.setTextColor(...headerTxt);
-      doc.text("Liste des repas à consommer", 40, 48);
-
-      doc.setFontSize(11);
-      doc.setTextColor(60, 60, 60);
-      doc.text(criteriaLine(), 40, 68);
-
-      if (rows.length) {
-        const head = [Object.keys(rows[0])];
-        const body = rows.map((r) => Object.values(r));
-        autoTable(doc, {
-          head,
-          body,
-          startY: 90,
-          styles: { fontSize: 10, cellPadding: 6 },
-          headStyles: {
-            fillColor: headerBg,
-            textColor: headerTxt,
-            lineWidth: 0.2,
-            lineColor: [210, 210, 210],
-            fontStyle: "bold",
+      const pid = p.id || p.matricule || `P-${Math.random()}`;
+      if (!m.has(pid)) {
+        m.set(pid, {
+          personId: pid,
+          person: {
+            id: p.id,
+            matricule: p.matricule,
+            name: p.name,
+            type: p.type || "—",
+            establishment: p.establishment?.name || "—",
           },
-          bodyStyles: {
-            fillColor: [255, 255, 255],
-            textColor: [55, 65, 81],
-            lineColor: [228, 228, 231],
-            lineWidth: 0.2,
-          },
-          alternateRowStyles: { fillColor: [249, 250, 251] },
-          margin: { left: 40, right: 40 },
+          rows: [],
         });
+      }
+      m.get(pid).rows.push({
+        id: it.id,
+        date: it.date,
+        meal: it.meal,
+      });
+    }
+    const arr = Array.from(m.values());
+    arr.forEach((g) => {
+      g.rows.sort((a, b) => {
+        const da = iso(a.date), db = iso(b.date);
+        if (da === db) return (a.meal || "").localeCompare(b.meal || "");
+        return da.localeCompare(db);
+      });
+    });
+    arr.sort((a, b) => {
+      const an = a.person.name || "", bn = b.person.name || "";
+      if (an && bn && an !== bn) return an.localeCompare(bn);
+      return (a.person.matricule || "").localeCompare(b.person.matricule || "");
+    });
+    return arr;
+  }, [items]);
 
-        doc.setFontSize(11);
-        doc.setTextColor(60, 60, 60);
-        doc.text(`Total: ${rows.length}`, 40, doc.lastAutoTable.finalY + 22);
-      } else {
-        doc.setFontSize(12);
-        doc.text("Aucun résultat.", 40, 100);
+  function previewBadges(rows) {
+    const first = rows.slice(0, 3).map((r) => `${iso(r.date)} – ${MEAL_LABELS[r.meal] || r.meal}`);
+    const extra = rows.length > 3 ? ` +${rows.length - 3}` : "";
+    return first.join(" • ") + extra;
+  }
+
+  // ----- Export ALL results (fetch all pages; apply same filters; CSV) -----
+  async function exportAll() {
+    try {
+      const all = [];
+      const PAGE = 1000;
+      let p = 1, fetched = 0, grandTotal = null;
+
+      for (;;) {
+        const { data } = await listMealPlans({
+          search: q,
+          meal,
+          from: fromDate || "",
+          to: toDate || "",
+          establishmentId: establishmentId || "",
+          type: personType || "",
+          page: p,
+          pageSize: PAGE,
+          order: order || "desc",
+        });
+        const chunk = data.items || [];
+        all.push(...chunk);
+        fetched += chunk.length;
+        grandTotal = grandTotal ?? (data.total || 0);
+        if (chunk.length === 0 || fetched >= grandTotal) break;
+        p++;
       }
 
-      doc.save(`mealplans_${new Date().toISOString().slice(0, 10)}.pdf`);
+      const headers = ["Date","Repas","Matricule","Nom","Type","Établissement"];
+      const lines = [headers.join(",")];
+      for (const it of all) {
+        const pp = it.person || {};
+        const row = [
+          iso(it.date),
+          (MEAL_LABELS[it.meal] || it.meal || "").replaceAll(",", " "),
+          (pp.matricule || "").replaceAll(",", " "),
+          (pp.name || "").replaceAll(",", " "),
+          (pp.type || "—").replaceAll(",", " "),
+          (pp.establishment?.name || "—").replaceAll(",", " "),
+        ];
+        lines.push(row.map((s) => `"${String(s ?? "").replaceAll(`"`, `""`)}"`).join(","));
+      }
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      a.download = `mealplans-export-${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     } catch (e) {
-      alert("Export PDF: impossible de générer le fichier.\n" + (e?.message || e));
+      alert(e?.response?.data?.message || e.message || "Export échoué");
     }
   }
 
-  // ===== UI =====
-  const establishmentOptions = useMemo(() => {
-    const opts = [{ id: "", name: "Tous les établissements" }];
-    const sorted = [...estabs].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    sorted.forEach((e) => opts.push({ id: e.id, name: e.name || "—" }));
-    return opts;
-  }, [estabs]);
+  // Build select options ('' = all)
+  const establishmentOptions = useMemo(
+    () => [{ id: "", name: "Tous les établissements" }, ...estabs],
+    [estabs]
+  );
+
+  const applyFilters = () => {
+    // Trigger a fetch immediately (bypass debounce when applying from sheet)
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    fetchData({ resetPage: true });
+  };
 
   return (
     <div className="p-4 space-y-4">
-      <h1 className="text-xl font-semibold">Choix de repas</h1>
-
-      {/* Barre de filtres (réactive) */}
-      <div className="grid gap-2 md:grid-cols-6">
-        {/* Texte */}
-        <label className="md:col-span-2 flex items-center border rounded px-2">
+      {/* ===== Mobile: top bar with search + filter button ===== */}
+      <div className="md:hidden flex items-center gap-2">
+        <div className="flex-1 flex items-center border rounded px-2">
           <MagnifyingGlassIcon className="w-5 h-5 text-slate-500" />
           <input
             className="px-2 py-2 outline-none w-full"
@@ -274,269 +372,275 @@ export default function MealPlansList() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-        </label>
-
-        {/* Du / Au */}
-        <input
-          type="date"
-          className="border rounded px-3 py-2"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          placeholder="Du…"
-        />
-        <input
-          type="date"
-          className="border rounded px-3 py-2"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          placeholder="Au…"
-        />
-
-        {/* Repas */}
-        <label className="flex items-center border rounded px-2">
-          <select className="w-full py-2 bg-white outline-none" value={meal} onChange={(e) => setMeal(e.target.value)}>
-            {MEALS.map((m) => (
-              <option key={m.key} value={m.key}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {/* Établissement */}
-        <label className="flex items-center border rounded px-2">
-          <select
-            className="w-full py-2 bg-white outline-none"
-            value={establishmentId}
-            onChange={(e) => setEstablishmentId(e.target.value)}
-            disabled={estabsLoading}
-          >
-            {establishmentOptions.map((o) => (
-              <option key={o.id || "all"} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {/* Type de personne */}
-        <label className="flex items-center border rounded px-2">
-          <select
-            className="w-full py-2 bg-white outline-none"
-            value={personType}
-            onChange={(e) => setPersonType(e.target.value)}
-          >
-            {PERSON_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {/* Actions rapides */}
-        <div className="md:col-span-6 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={resetFilters}
-            title="Réinitialiser les filtres"
-            className="inline-flex items-center justify-center p-2 rounded-full border hover:bg-slate-50"
-          >
-            <ArrowPathIcon className="w-5 h-5 text-slate-700" />
-          </button>
-
-          {/* Import Excel */}
-          <button
-            type="button"
-            title="Importer depuis Excel"
-            onClick={() => {
-              setShowImport(true);
-              setImpFile(null);
-              setImpSummary(null);
-              setImpError(null);
-            }}
-            className="inline-flex items-center justify-center p-2 rounded-full border hover:bg-slate-50"
-          >
-            <ArrowUpTrayIcon className="w-5 h-5 text-slate-700" />
-          </button>
-
-          {/* Export PDF */}
-          <button
-            type="button"
-            onClick={exportMealPlansPDF}
-            title="Exporter la liste en PDF"
-            className="inline-flex items-center justify-center p-2 rounded-full border hover:bg-slate-50"
-          >
-            <ArrowDownTrayIcon className="w-5 h-5 text-slate-700" />
-          </button>
-
-          {/* Effacer tout — garde en toolbar, pas de suppression par ligne */}
-          <button
-            type="button"
-            onClick={eraseAll}
-            title="Effacer TOUTES les lignes"
-            className="inline-flex items-center justify-center p-2 rounded-full bg-red-600 text-white hover:bg-red-700"
-          >
-            <TrashIcon className="w-5 h-5" />
-          </button>
-
-          {estabsError && <span className="text-red-600 text-sm">{String(estabsError)}</span>}
         </div>
+        <button
+          className="md:hidden inline-flex items-center justify-center rounded-lg border px-3 py-2"
+          aria-label="Filtres"
+          onClick={() => setMobileFiltersOpen(true)}
+        >
+          <FunnelIcon />
+        </button>
       </div>
 
-      {/* Import dialog */}
-      {showImport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowImport(false)} />
-          <div className="relative bg-white w-[min(560px,92vw)] rounded-2xl shadow-xl ring-1 ring-slate-200 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-lg font-semibold">Importer des choix de repas</h3>
-              <button onClick={() => setShowImport(false)} className="text-slate-500 hover:text-slate-700">
-                ✕
-              </button>
-            </div>
+      {/* ===== Mobile: prominent date range (kept as you designed it) ===== */}
+      <div className="md:hidden grid grid-cols-2 gap-2">
+        <label className="flex flex-col rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+          <span className="text-[10px] uppercase tracking-wide text-emerald-700">Du</span>
+          <input
+            type="date"
+            className="mt-1 text-base sm:text-lg font-semibold text-emerald-900 bg-transparent outline-none"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+          />
+        </label>
+        <label className="flex flex-col rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+          <span className="text-[10px] uppercase tracking-wide text-emerald-700">Au</span>
+          <input
+            type="date"
+            className="mt-1 text-base sm:text-lg font-semibold text-emerald-900 bg-transparent outline-none"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+          />
+        </label>
+      </div>
 
-            <form onSubmit={submitImport} className="space-y-3">
-              <div className="flex flex-col sm:flex-row gap-2">
-                <select className="px-3 py-2 rounded-md border" value={impKind} onChange={(e) => setImpKind(e.target.value)}>
-                  <option value="student">Étudiants</option>
-                  <option value="staff">Personnel</option>
-                </select>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold">Choix de repas</h1>
+      </div>
 
-                <input
-                  type="file"
-                  accept=".xlsx"
-                  onChange={(e) => setImpFile(e.target.files?.[0] || null)}
-                  className="px-3 py-2 rounded-md border w-full"
-                />
-              </div>
-
-              {impError && <div className="text-red-700 bg-red-50 border rounded p-2">{impError}</div>}
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="submit"
-                  disabled={!impFile || impBusy}
-                  className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {impBusy ? "Importation…" : "Importer"}
-                </button>
-                <button type="button" onClick={() => setShowImport(false)} className="px-4 py-2 rounded-lg border hover:bg-slate-50">
-                  Fermer
-                </button>
-              </div>
-
-              {impSummary && (
-                <div className="mt-2 rounded-md border bg-white">
-                  <div className="p-3 border-b font-medium">Résumé</div>
-                  <div className="p-3 text-sm">
-                    <div>Créés: <b>{impSummary.created || 0}</b></div>
-                    <div>Mis à jour: <b>{impSummary.updated || 0}</b></div>
-                    {Array.isArray(impSummary.issues) && impSummary.issues.length > 0 && (
-                      <details className="mt-2">
-                        <summary className="cursor-pointer">Problèmes ({impSummary.issues.length})</summary>
-                        <ul className="list-disc pl-5 mt-1">
-                          {impSummary.issues.slice(0, 50).map((it, idx) => (
-                            <li key={idx}>{it.row ? `Ligne ${it.row}: ` : ""}{String(it.reason)}</li>
-                          ))}
-                          {impSummary.issues.length > 50 && <li>… et {impSummary.issues.length - 50} autres</li>}
-                        </ul>
-                      </details>
-                    )}
-                  </div>
-                </div>
-              )}
-            </form>
-          </div>
+      {/* ===== Desktop filters bar (UNCHANGED) ===== */}
+      <div className="hidden md:grid gap-2 md:grid-cols-7">
+        {/* Search */}
+        <div className="flex items-center border rounded px-2">
+          <MagnifyingGlassIcon className="w-5 h-5 text-slate-500" />
+          <input
+            className="px-2 py-2 outline-none w-full"
+            placeholder="Rechercher (matricule, nom, email…)"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </div>
-      )}
 
-      {/* Contenu */}
+        {/* Date range (desktop) */}
+        <input
+          type="date"
+          className="border rounded px-3 py-2"
+          value={fromDate}
+          onChange={(e) => setFromDate(e.target.value)}
+          title="Date de début"
+        />
+        <input
+          type="date"
+          className="border rounded px-3 py-2"
+          value={toDate}
+          onChange={(e) => setToDate(e.target.value)}
+          title="Date de fin"
+        />
+
+        {/* Meal */}
+        <select className="border rounded px-3 py-2" value={meal} onChange={(e) => setMeal(e.target.value)}>
+          {MEALS.map((m) => (
+            <option key={m.key} value={m.key}>{m.label}</option>
+          ))}
+        </select>
+
+        {/* Establishment (populated) */}
+        <select
+          className="border rounded px-3 py-2"
+          value={establishmentId}
+          onChange={(e) => setEstablishmentId(e.target.value)}
+          disabled={estabsLoading}
+          title="Établissement"
+        >
+          {establishmentOptions.map((o) => (
+            <option key={o.id || "all"} value={o.id}>{o.name}</option>
+          ))}
+        </select>
+
+        {/* Type */}
+        <select className="border rounded px-3 py-2" value={personType} onChange={(e) => setPersonType(e.target.value)}>
+          {TYPES.map((t) => (
+            <option key={t.key} value={t.key}>{t.label}</option>
+          ))}
+        </select>
+
+        {/* Export (desktop) */}
+        <button
+          onClick={exportAll}
+          title="Exporter tous les résultats (CSV)"
+          className="inline-flex items-center gap-1 px-2 py-2 rounded hover:bg-emerald-50"
+        >
+          <ArrowDownTrayIcon className="w-5 h-5 text-emerald-600" />
+        </button>
+      </div>
+
+      {/* Status / errors */}
+      {estabsError && <div className="text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+        Impossible de charger les établissements depuis l’API. La liste se remplit automatiquement à partir des résultats ci-dessous.
+      </div>}
       {err && <div className="text-red-600">{err}</div>}
       {loading ? (
         <div className="text-slate-500">Chargement…</div>
-      ) : items.length === 0 ? (
+      ) : grouped.length === 0 ? (
         <div className="text-slate-500">Aucun résultat.</div>
       ) : (
         <>
-          {/* Table desktop (sans supprimer par ligne) */}
+          {/* Desktop table (grouped by person) */}
           <div className="hidden md:block overflow-x-auto border rounded">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="text-left p-2">Date</th>
-                  <th className="text-left p-2">Repas</th>
+                  <th className="text-left p-2 w-10"></th>
                   <th className="text-left p-2">Matricule</th>
                   <th className="text-left p-2">Nom</th>
+                  <th className="text-left p-2">Type</th>
                   <th className="text-left p-2">Établissement</th>
-                  <th className="text-left p-2">Actions</th>
+                  <th className="text-left p-2">Aperçu (date • repas)</th>
+                  <th className="text-left p-2">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((it) => {
-                  const p = it.person || {};
+                {grouped.map((grp) => {
+                  const pid = grp.personId;
+                  const isOpen = open.has(pid);
                   return (
-                    <tr key={it.id} className="border-t">
-                      <td className="p-2">{new Date(it.date).toISOString().slice(0, 10)}</td>
-                      <td className="p-2">{MEAL_LABELS[it.meal] || it.meal}</td>
-                      <td className="p-2">{p.matricule}</td>
-                      <td className="p-2">{p.name}</td>
-                      <td className="p-2">{p.establishment?.name || "—"}</td>
-                      <td className="p-2">
-                        <button title="Voir" onClick={() => setSelected({ plan: it, person: p })} className="hover:opacity-80">
-                          <EyeIcon className="w-5 h-5 text-blue-600" />
-                        </button>
-                        {/* 🔕 suppression par ligne retirée */}
-                      </td>
-                    </tr>
+                    <React.Fragment key={pid}>
+                      <tr className="border-t">
+                        <td className="p-2 align-top">
+                          <button
+                            onClick={() => {
+                              const n = new Set(open);
+                              if (n.has(pid)) n.delete(pid); else n.add(pid);
+                              setOpen(n);
+                            }}
+                            className="hover:opacity-80"
+                            title={isOpen ? "Réduire" : "Développer"}
+                          >
+                            {isOpen ? (
+                              <ChevronDownIcon className="w-5 h-5 text-slate-600" />
+                            ) : (
+                              <ChevronRightIcon className="w-5 h-5 text-slate-600" />
+                            )}
+                          </button>
+                        </td>
+                        <td className="p-2 align-top">{grp.person.matricule}</td>
+                        <td className="p-2 align-top">{grp.person.name}</td>
+                        <td className="p-2 align-top">{grp.person.type}</td>
+                        <td className="p-2 align-top">{grp.person.establishment}</td>
+                        <td className="p-2 align-top text-slate-600">{previewBadges(grp.rows)}</td>
+                        <td className="p-2 align-top">
+                          <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2 py-[2px] text-xs border border-emerald-200">
+                            {grp.rows.length}
+                          </span>
+                        </td>
+                      </tr>
+
+                      {isOpen && (
+                        <tr className="bg-slate-50/40">
+                          <td colSpan={7} className="px-2 py-2">
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-xs">
+                                <thead>
+                                  <tr className="text-left">
+                                    <th className="px-2 py-1">Date</th>
+                                    <th className="px-2 py-1">Repas</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {grp.rows.map((r) => (
+                                    <tr key={r.id} className="border-t">
+                                      <td className="px-2 py-1">{iso(r.date)}</td>
+                                      <td className="px-2 py-1">{MEAL_LABELS[r.meal] || r.meal}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
             </table>
           </div>
 
-          {/* Cartes mobile (sans supprimer par carte) */}
+          {/* Mobile cards (ergonomic, green accent, total badge) */}
           <div className="md:hidden grid gap-3">
-            {items.map((it) => {
-              const p = it.person || {};
-              const dateStr = new Date(it.date).toISOString().slice(0, 10);
+            {grouped.map((grp) => {
+              const pid = grp.personId;
+              const isOpen = open.has(pid);
               return (
                 <article
-                  key={it.id}
-                  className="relative rounded-2xl bg-white shadow-lg shadow-slate-200/70 ring-1 ring-slate-200 p-4 transition-transform duration-150 active:scale-[0.99]"
+                  key={pid}
+                  className="
+                    relative rounded-2xl bg-white
+                    shadow-lg shadow-slate-200/70
+                    ring-1 ring-slate-200
+                    p-4
+                    transition-transform duration-150 active:scale-[0.99]
+                  "
                 >
-                  <div className="pointer-events-none absolute inset-x-0 -top-px h-1.5 rounded-t-2xl bg-gradient-to-r from-primary/80 via-accent/70 to-emerald-400" />
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-semibold leading-5">{p.name || "—"}</div>
-                      <div className="text-xs text-slate-500">Matricule • {p.matricule || "—"}</div>
+                  {/* Green accent bar */}
+                  <div className={`absolute left-0 top-0 h-full w-1.5 rounded-l-2xl ${APP_GREEN}`} />
+                  <div className="flex items-start justify-between">
+                    <div className="pr-2">
+                      <div className="font-medium text-slate-900">
+                        {grp.person.name || "—"}{" "}
+                        <span className="text-slate-500">• {grp.person.matricule}</span>
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        {grp.person.type} • {grp.person.establishment}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {previewBadges(grp.rows)}
+                      </div>
                     </div>
+
+                    {/* total badge */}
+                    <span className="ml-2 inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2 py-1 text-xs border border-emerald-200">
+                      {grp.rows.length}
+                    </span>
+
                     <button
-                      title="Voir"
-                      onClick={() => setSelected({ plan: it, person: p })}
-                      className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-200 hover:bg-blue-100"
+                      onClick={() => {
+                        const n = new Set(open);
+                        if (n.has(pid)) n.delete(pid); else n.add(pid);
+                        setOpen(n);
+                      }}
+                      title={isOpen ? "Réduire" : "Développer"}
+                      className="ml-3 -mr-1 p-1 rounded-md hover:bg-slate-50 active:bg-slate-100"
                     >
-                      <EyeIcon className="w-5 h-5" />
+                      {isOpen ? (
+                        <ChevronDownIcon className="w-6 h-6 text-slate-600" />
+                      ) : (
+                        <ChevronRightIcon className="w-6 h-6 text-slate-600" />
+                      )}
                     </button>
-                    {/* 🔕 suppression par carte retirée */}
                   </div>
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 ring-1 ring-slate-200">
-                      {dateStr}
-                    </span>
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
-                      {MEAL_LABELS[it.meal] || it.meal}
-                    </span>
-                  </div>
-
-                  <div className="mt-2 text-sm text-slate-700">{p.establishment?.name || "—"}</div>
+                  {isOpen && (
+                    <div className="mt-3 space-y-1">
+                      {grp.rows.map((r) => (
+                        <div
+                          key={r.id}
+                          className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                        >
+                          <div className="text-sm">
+                            <div className="font-medium text-slate-800">{iso(r.date)}</div>
+                            <div className="text-slate-600">{MEAL_LABELS[r.meal] || r.meal}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </article>
               );
             })}
           </div>
 
-          {/* Pagination */}
+          {/* Pagination (server paginates raw rows) */}
           <div className="flex justify-between items-center pt-2">
             <div className="text-sm text-slate-600">
               Page {page} / {Math.max(1, Math.ceil(total / pageSize))} — {total} éléments
@@ -561,53 +665,21 @@ export default function MealPlansList() {
         </>
       )}
 
-      {/* MODAL */}
-      {selected && (
-        <Modal onClose={() => setSelected(null)} title="Détails du choix de repas">
-          <Section title="Personne">
-            <Item label="Matricule" value={selected.person?.matricule} />
-            <Item label="Nom" value={selected.person?.name} />
-            <Item label="Établissement" value={selected.person?.establishment?.name || "—"} />
-          </Section>
-          <Section title="Choix">
-            <Item label="Date" value={new Date(selected.plan.date).toISOString().slice(0, 10)} />
-            <Item label="Repas" value={MEAL_LABELS[selected.plan.meal] || selected.plan.meal} />
-          </Section>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-function Section({ title, children }) {
-  return (
-    <div>
-      <div className="text-sm font-semibold mb-1">{title}</div>
-      <div className="space-y-1">{children}</div>
-    </div>
-  );
-}
-function Item({ label, value }) {
-  return (
-    <div className="flex justify-between gap-6 py-1">
-      <div className="text-slate-500">{label}</div>
-      <div className="font-medium">{value ?? "—"}</div>
-    </div>
-  );
-}
-function Modal({ title, children, onClose }) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between border-b p-3">
-          <h2 className="font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-700">✕</button>
-        </div>
-        <div className="p-4 space-y-4">{children}</div>
-        <div className="p-3 border-t text-right">
-          <button onClick={onClose} className="px-3 py-2 rounded bg-primary text-white">Fermer</button>
-        </div>
-      </div>
+      {/* ===== Mobile filters sheet (SAME filters as desktop) ===== */}
+      <MobileFiltersSheet
+        open={mobileFiltersOpen}
+        onClose={() => setMobileFiltersOpen(false)}
+        q={q} setQ={setQ}
+        meal={meal} setMeal={setMeal}
+        fromDate={fromDate} setFromDate={setFromDate}
+        toDate={toDate} setToDate={setToDate}
+        establishmentId={establishmentId} setEstablishmentId={setEstablishmentId}
+        personType={personType} setPersonType={setPersonType}
+        order={order} setOrder={setOrder}
+        establishmentOptions={establishmentOptions}
+        estabsLoading={estabsLoading}
+        onApply={applyFilters}
+      />
     </div>
   );
 }

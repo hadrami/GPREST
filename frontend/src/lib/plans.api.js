@@ -1,4 +1,4 @@
-import { api } from "./api";
+import  api  from "./api";
 
 /** Upload the XLSX plan; body = FormData(file, establishmentId, kind='student'|'staff') */
 export function importMealPlan(formData) {

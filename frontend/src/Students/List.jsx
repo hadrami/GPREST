@@ -1,11 +1,11 @@
 // src/Students/List.jsx — Persons list (Étudiants + Personnel)
-// - Fetches ALL establishments once (by name) and filters by selected one
-// - Reactive search: updates automatically on text/type/establishment changes
+// Keep layout/styles; add: page size 20, bottom "shown/total", Prev/Next, export CSV
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { fetchStudents } from "../redux/slices/studentsSlice";
-import { EyeIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { apiListStudents } from "../lib/students.api"; // fetch all by name (server) ✅
+import { EyeIcon, MagnifyingGlassIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 import { apiListEstablishments } from "../lib/establissments.api"; // fetch all by name (server) ✅
 
 function rowOf(item) {
@@ -28,7 +28,13 @@ const PERSON_TYPES = [
 
 export default function PersonsList() {
   const dispatch = useDispatch();
-  const { items = [], page = 1, pageSize = 20, status, error } = useSelector((s) => s.students);
+  const { items = [], status, error, total = 0 } = useSelector((s) => s.students);
+
+  // Enforce page size 20 (fixed)
+  const pageSize = 20;
+
+  // Local paging state (don’t change styles, just wire logic)
+  const [page, setPage] = useState(1);
 
   // Search state
   const [q, setQ] = useState("");
@@ -49,15 +55,17 @@ export default function PersonsList() {
   // Load students from server
   const load = async ({ resetPage = false } = {}) => {
     try {
+      const nextPage = resetPage ? 1 : page;
       await dispatch(
         fetchStudents({
           search: q,
           establishmentId: establishmentId || "", // empty = all
           personType,
-          page: resetPage ? 1 : page,
+          page: nextPage,
           pageSize,
         })
       ).unwrap();
+      if (resetPage) setPage(1);
     } catch {
       /* handled via slice status/error */
     }
@@ -92,11 +100,18 @@ export default function PersonsList() {
     // Debounce to avoid hammering the API as you type
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
+      setPage(1);
       load({ resetPage: true });
     }, 300);
     return () => clearTimeout(debounceRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, personType, establishmentId]);
+
+  // Re-fetch when page changes
+  useEffect(() => {
+    load({ resetPage: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   const rows = useMemo(() => items.map(rowOf), [items]);
 
@@ -111,14 +126,75 @@ export default function PersonsList() {
     return opts;
   }, [estabs]);
 
+  // ------- Export current page (CSV Excel-friendly) -------
+ const exportCsv = async () => {
+   // Map UI -> backend type
+   const type =
+     personType.toLowerCase() === "student"
+       ? "STUDENT"
+       : personType.toLowerCase() === "staff"
+       ? "STAFF"
+       : "";
+
+   const all = [];
+   let p = 1;
+   const ps = 1000; // big pages to minimize roundtrips
+   while (true) {
+     const { data } = await apiListStudents({
+       search: q,
+       establishmentId: establishmentId || "",
+       type,
+       page: p,
+       pageSize: ps,
+     });
+     const batch = Array.isArray(data?.items) ? data.items : [];
+     all.push(...batch);
+     const totalApi = Number(data?.total || 0);
+     if (all.length >= totalApi || batch.length === 0) break;
+     p += 1;
+  }
+
+   // Shape rows like your table
+   const head = ["Matricule", "Nom", "Email", "Établissement", "Type"];
+   const lines = all.map((it) => [
+     it.matricule ?? "",
+     it.name ?? "",
+     it.email ?? "",
+     it.establishment?.name ?? "—",
+     (it.type || "").toUpperCase() === "STAFF" ? "Personnel" :
+       (it.type || "").toUpperCase() === "STUDENT" ? "Étudiant" : "—",
+   ]);
+   const csv = [head, ...lines]
+     .map((arr) =>
+       arr
+         .map((v) => {
+           const s = String(v ?? "");
+           return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+         })
+         .join(";")
+     )
+     .join("\n");
+   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+   const url = URL.createObjectURL(blob);
+   const a = document.createElement("a");
+   a.href = url;
+   a.download = `personnes_export_${all.length}.csv`;
+   a.click();
+   URL.revokeObjectURL(url);
+ };
+
+  // Derived footer numbers
+  const shown = Math.min(page * pageSize, total);
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
   return (
     <div className="p-4 space-y-4">
       <h1 className="text-xl font-semibold">Personnes</h1>
 
       {/* Search + filters (reactive, no explicit "search" button needed) */}
-      <div className="grid gap-2 md:grid-cols-4">
+      <div className="grid gap-2 md:grid-cols-4 w-full">
         {/* Text query */}
-        <label className="md:col-span-2 flex items-center border rounded px-2">
+       <label className=" lg:col-span-1 flex items-center border rounded px-2">
           <MagnifyingGlassIcon className="w-5 h-5 text-slate-500" />
           <input
             className="px-2 py-2 outline-none w-full"
@@ -128,7 +204,7 @@ export default function PersonsList() {
           />
         </label>
 
-        {/* Establishment: fetch ALL from server and filter by name (select -> id) */}
+        {/* Establishment */}
         <label className="flex items-center border rounded px-2">
           <select
             className="w-full py-2 bg-white outline-none"
@@ -159,20 +235,24 @@ export default function PersonsList() {
           </select>
         </label>
 
+        <div className=" flex items-center justify-end">
+          <button
+     type="button"
+     onClick={exportCsv}              // keep your existing handler
+     className="p-2 rounded-md border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:border-blue-300"
+     title="Exporter CSV"
+     aria-label="Exporter CSV"
+   >
+     <ArrowDownTrayIcon className="w-5 h-5" />
+   </button>
+          </div>
+
         {/* Quick actions */}
         <div className="md:col-span-4 flex gap-2">
-          <button
-            className="px-3 py-2 rounded border"
-            type="button"
-            onClick={() => {
-              setQ("");
-              setEstablishmentId("");
-              setPersonType("");
-              load({ resetPage: true });
-            }}
-          >
-            Tout réinitialiser
-          </button>
+
+          {/* Small export icon button (same icon used on MealPlans list) */}
+          
+
           {estabsError && (
             <span className="text-red-600 text-sm">{String(estabsError)}</span>
           )}
@@ -180,9 +260,7 @@ export default function PersonsList() {
       </div>
 
       {/* Status / errors */}
-      {status === "failed" && (
-        <div className="text-red-600">{String(error || "Erreur")}</div>
-      )}
+      {status === "failed" && <div className="text-red-600">{String(error || "Erreur")}</div>}
       {status === "loading" ? (
         <div className="text-slate-500">Chargement…</div>
       ) : rows.length === 0 ? (
@@ -225,7 +303,6 @@ export default function PersonsList() {
                         >
                           <EyeIcon className="w-5 h-5 text-blue-600" />
                         </button>
-                        {/* Delete intentionally removed */}
                       </div>
                     </td>
                   </tr>
@@ -256,16 +333,13 @@ export default function PersonsList() {
                       Matricule • {it.matricule || "—"}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      title="Voir"
-                      onClick={() => setSelected(it)}
-                      className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-200 hover:bg-blue-100"
-                    >
-                      <EyeIcon className="w-5 h-5" />
-                    </button>
-                    {/* Delete removed */}
-                  </div>
+                  <button
+                    title="Voir"
+                    onClick={() => setSelected(it)}
+                    className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-200 hover:bg-blue-100"
+                  >
+                    <EyeIcon className="w-5 h-5" />
+                  </button>
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -285,6 +359,30 @@ export default function PersonsList() {
                 </div>
               </article>
             ))}
+          </div>
+
+          {/* Pagination footer (keep style simple) */}
+          <div className="flex justify-between items-center pt-2">
+            {/* Shown/Total as requested, e.g. 40/748 */}
+            <div className="text-sm text-slate-600">
+              {shown}/{total}
+            </div>
+            <div className="space-x-2">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="px-3 py-1 border rounded disabled:opacity-50"
+              >
+                Préc
+              </button>
+              <button
+                disabled={page >= pageCount}
+                onClick={() => setPage((p) => p + 1)}
+                className="px-3 py-1 border rounded disabled:opacity-50"
+              >
+                Suiv
+              </button>
+            </div>
           </div>
         </>
       )}
