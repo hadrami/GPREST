@@ -32,7 +32,7 @@ export default function Login() {
   const submit = (e) => {
       e.preventDefault(); // <-- IMPORTANT: avoid full page reload
     dispatch(clearError());
-    const res =  dispatch(login({ username, password }));
+    const res =  dispatch(login({ username, password })).unwrap();
     if (res.meta.requestStatus === "fulfilled") {
       const role = res.payload?.user?.role;
       const next =
