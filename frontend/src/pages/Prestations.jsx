@@ -1,17 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import axios from "axios";
+import api from "../lib/api";
 import { FileDown, Filter, Search, X } from "lucide-react";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 
-// If you have this helper (like in MealPlansList), keep it.
-// If not, fallback /api/etablissements below still works.
-import { apiListEstablishments } from "../lib/establissments.api";
-
 const RATES = {
-  student: { petitDej: 2,  dej: 5,  diner: 3  },
-  staff:   { petitDej: 15, dej: 50, diner: 25 },
+  student: { petitDej: 2,  dej: 5,  diner: 3  },   // MRU
+  staff:   { petitDej: 15, dej: 50, diner: 25 },   // MRU
 };
+
 const PAGE_SIZE = 20;
 
 function formatDateInput(d) {
@@ -22,6 +19,7 @@ function formatDateInput(d) {
   const day = String(dt.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
 function normalizeMealName(m) {
   const v = (m || "").toLowerCase().trim();
   if (["petit","petitdej","ptitdej","petit_dej","petit-dej","breakfast"].includes(v)) return "petitDej";
@@ -29,6 +27,7 @@ function normalizeMealName(m) {
   if (["diner","dîner","dinner","soir"].includes(v)) return "diner";
   return v;
 }
+
 function moneyForRow(type, counts) {
   const t = (type || "").toLowerCase() === "staff" ? "staff" : "student";
   const r = RATES[t];
@@ -40,7 +39,7 @@ export default function Prestations() {
   const [search, setSearch] = useState("");
   const [from, setFrom]     = useState("");
   const [to, setTo]         = useState("");
-  const [etab, setEtab]     = useState(""); // use name for compatibility with current API
+  const [etab, setEtab]     = useState(""); // name-based filter (client-side)
   const [type, setType]     = useState(""); // "" | "student" | "staff"
 
   // Data & UI
@@ -55,25 +54,18 @@ export default function Prestations() {
   // Debounce for auto-apply
   const debounceRef = useRef(null);
 
-  // ---- Establishments list (same approach as MealPlans; with fallback) ----
+  // ---- Establishments list (auth-aware, via shared api) ----
   useEffect(() => {
     const run = async () => {
       try {
-        const { data } = await apiListEstablishments({ page: 1, pageSize: 1000 });
-        const items = Array.isArray(data?.items) ? data.items : [];
-        const sorted = items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-        setEstabs(sorted);
+        const { data } = await api.get("/etablissements");
+        const arr = Array.isArray(data) ? data : [];
+        const norm = arr
+          .map((x, i) => ({ id: x.id ?? `E${i}`, name: x.nom || x.name || "—" }))
+          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setEstabs(norm);
       } catch {
-        try {
-          const resp = await axios.get("/api/etablissements");
-          const arr = Array.isArray(resp.data) ? resp.data : [];
-          const norm = arr
-            .map((x, i) => ({ id: x.id ?? `E${i}`, name: x.nom || x.name || "—" }))
-            .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-          setEstabs(norm);
-        } catch {
-          setEstabs([]);
-        }
+        setEstabs([]);
       }
     };
     run();
@@ -85,26 +77,31 @@ export default function Prestations() {
       search: params.search || "",
       from: params.from || "",
       to: params.to || "",
-      etablissement: params.etablissement || "", // current API expects a name
-      type: params.type || "",
+      // Server supports establishmentId; we keep name client-side and filter locally.
+      type: params.type || "", // 'student'/'staff' → backend uppercases internally
       limit,
       offset,
     };
-    const resp = await axios.get("/api/mealplans", { params: q });
-    return resp.data || { data: [], total: 0 };
+
+    const { data: resp } = await api.get("/mealplans", { params: q });
+
+    // Accept both shapes: array OR { items, total, ... }
+    if (Array.isArray(resp)) return { data: resp, total: resp.length };
+    const { items = [], total = 0 } = resp || {};
+    return { data: items, total };
   };
 
   const aggregate = (items) => {
     const map = new Map();
     for (const it of items) {
-      if (it?.planned === false) continue; // count planned only
+      if (it?.planned === false) continue; // planned only
 
       const person = it?.person || {};
       const key = person.matricule || `${person.nom ?? ""}-${person.prenom ?? ""}-${person.etablissement ?? ""}`;
       if (!map.has(key)) {
         map.set(key, {
           matricule: person.matricule || "",
-          nom: person.nom || "",
+          nom: person.nom || person.name || "",
           prenom: person.prenom || "",
           etablissement: person.establissement || person.establishment?.name || "",
           type: (person.type || "").toLowerCase() === "staff" ? "staff" : "student",
@@ -134,7 +131,7 @@ export default function Prestations() {
       );
       const aggregated = aggregate(data);
 
-      // derive establishments from results if list still empty
+      // If establishments select is still empty, derive from results
       if (estabs.length === 0 && Array.isArray(data)) {
         const uniq = new Map();
         for (const it of data) {
@@ -264,13 +261,12 @@ export default function Prestations() {
 
   return (
     <div className="p-4 space-y-4">
-      {/* Header (removed PDF here to avoid duplicates) */}
+      {/* Header (no PDF here to avoid duplicates) */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Prestations</h1>
-        {/* no button here */}
       </div>
 
-      {/* ===== Mobile: top bar (search + Filters button + PDF icon) ===== */}
+      {/* ===== Mobile: search + filters button + PDF ===== */}
       <div className="md:hidden space-y-2">
         <div className="flex items-end gap-2">
           <div className="flex-1">
@@ -296,7 +292,7 @@ export default function Prestations() {
           </button>
         </div>
 
-        {/* Date cards */}
+        {/* Date range cards */}
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col rounded-xl border border-emerald-200 bg-emerald-50 p-3">
             <span className="text-[10px] uppercase tracking-wide text-emerald-700">Du</span>
@@ -318,7 +314,7 @@ export default function Prestations() {
           </label>
         </div>
 
-        {/* Mobile filters sheet (auto-applies on change; no apply/reset buttons) */}
+        {/* Mobile filters sheet (auto-applies on change) */}
         {showFiltersMobile && (
           <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setShowFiltersMobile(false)}>
             <div
@@ -427,7 +423,7 @@ export default function Prestations() {
           <option value="staff">Personnel</option>
         </select>
 
-        {/* Export (desktop, single small icon) */}
+        {/* Export (desktop) */}
         <button
           onClick={exportPDF}
           title="Exporter (PDF)"
@@ -488,6 +484,7 @@ export default function Prestations() {
                 </tr>
               ))}
           </tbody>
+
           {!loading && filteredRows.length > 0 && (
             <tfoot className="bg-slate-50 border-t">
               <tr>

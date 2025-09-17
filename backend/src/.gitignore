@@ -5,3 +5,7 @@ node_modules
 /generated/prisma
 
 prisma/seed-user.js
+prisma/seed-stud-esp.js
+prisma/seed-stud-isms.js
+prisma/seed-stud-isme.js
+prisma/seed-etabliss.js
