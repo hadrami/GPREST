@@ -20,7 +20,8 @@ dotenv.config({ path: path.resolve(__dirname, ".env") });
 const fastify = Fastify({ logger: true });
 
 // --- core plugins ---
-await fastify.register(fastifyCors, { origin: true, credentials: true });
+await fastify.register(fastifyCors, { origin: ['https://gpcou.com', 'https://www.gpcou.com']
+, credentials: true });
 await fastify.register(fastifyJwt, { secret: process.env.JWT_SECRET });
 
 // Optional: multipart & prisma if you need them globally
