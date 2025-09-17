@@ -12,7 +12,6 @@ import MealPlansList from "./pages/mealplans/MealPlansList.jsx";
 import Summary from "./Reports/Summary.jsx";
 import StudentsList from "./Students/List.jsx";
 import StudentsImport from "./Students/Import.jsx";
-import TicketsGenerate from "./Tickets/Generate.jsx";
 import Login from "./pages/auth/Login.jsx";
 import ForcePasswordChange from "./pages/auth/ForcePasswordChange.jsx";
 import Dashboard from "./pages/dashboard/Dashboard.jsx";
@@ -127,14 +126,6 @@ export default function App() {
           }
         />
 
-        <Route
-          path="/tickets/generate"
-          element={
-            <ProtectedRoute allowedRoles={["ADMIN"]}>
-              <TicketsGenerate />
-            </ProtectedRoute>
-          }
-        />
    <Route
           path="/reports/summary"
           element={
