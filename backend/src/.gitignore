@@ -9,4 +9,4 @@ src/prisma/seed-stud-esp.js
 src/prisma/seed-stud-isms.js
 src/prisma/seed-stud-isme.js
 src/prisma/seed-etabliss.js
-/scripts
+scripts

@@ -12,8 +12,14 @@
     "db:migrate": "prisma migrate dev -n init",
     "generate": "prisma generate",
     "prisma:dev": "prisma migrate dev --name init && node prisma/seed.js",
-    "check:env": "node -e \"require('dotenv').config(); console.log('JWT?', !!process.env.JWT_SECRET, 'QR?', !!process.env.QR_SECRET, 'DB?', !!process.env.DATABASE_URL)\""
+    "check:env": "node -e \"import('dotenv').then(dotenv => dotenv.config()); console.log('DB?', !!process.env.DATABASE_URL, 'JWT?', !!process.env.JWT_SECRET)\""
   },
+
+  "engines": {
+    "node": ">=20.0.0"
+  },
+
+
   "dependencies": {
     "@fastify/cors": "^11.1.0",
     "@fastify/jwt": "^10.0.0",
