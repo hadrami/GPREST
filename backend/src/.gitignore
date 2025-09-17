@@ -4,8 +4,9 @@ node_modules
 
 /generated/prisma
 
-prisma/seed-user.js
-prisma/seed-stud-esp.js
-prisma/seed-stud-isms.js
-prisma/seed-stud-isme.js
-prisma/seed-etabliss.js
+src/prisma/seed-user.js
+src/prisma/seed-stud-esp.js
+src/prisma/seed-stud-isms.js
+src/prisma/seed-stud-isme.js
+src/prisma/seed-etabliss.js
+/scripts
