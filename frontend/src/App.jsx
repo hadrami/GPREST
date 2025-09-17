@@ -17,6 +17,7 @@ import Login from "./pages/auth/Login.jsx";
 import ForcePasswordChange from "./pages/auth/ForcePasswordChange.jsx";
 import Dashboard from "./pages/dashboard/Dashboard.jsx";
 import Scanner from "./pages/Scanner.jsx";
+import Prestations from "./pages/Prestations.jsx";
 
 // Role-aware guard (from your new ProtectedRoute.jsx)
 import ProtectedRoute, { GuestOnly } from "./components/ProtectedRoute.jsx";
@@ -134,12 +135,20 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-
-        <Route
+   <Route
           path="/reports/summary"
           element={
             <ProtectedRoute allowedRoles={["ADMIN"]}>
               <Summary />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/prestations"
+          element={
+            <ProtectedRoute allowedRoles={["ADMIN"]}>
+              <Prestations />
             </ProtectedRoute>
           }
         />

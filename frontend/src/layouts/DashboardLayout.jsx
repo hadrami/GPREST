@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
-import { BanknotesIcon } from "@heroicons/react/24/outline"; // ⟵ ajouter cet import
+import { ReceiptText } from "lucide-react";
 
 import { logout } from "../redux/slices/authSlice";
 
@@ -149,7 +149,9 @@ export default function DashboardLayout() {
           <NavItem
   to="/prestations"              // route placeholder, on branchera plus tard
   label="Prestations"
-  icon={<BanknotesIcon className="w-5 h-5" />}
+  icon= <ReceiptText size={18} />
+  canClick={isAdmin}
+  onNavigate={() => setOpen(false)}
 />
 
         </nav>
