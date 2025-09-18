@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { byDay } from "../lib/reports.api";
-import { apiListEstablishments } from "../lib/establissments.api";
+import { apiListEstablishments } from "../lib/establishments.api";
 import {
   PrinterIcon,       // PDF export (single small icon)
   MagnifyingGlassIcon,

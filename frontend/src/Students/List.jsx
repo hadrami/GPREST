@@ -1,12 +1,12 @@
 // src/Students/List.jsx — Persons list (Étudiants + Personnel)
-// Keep layout/styles; add: page size 20, bottom "shown/total", Prev/Next, export CSV
+// Keep layout/styles; add: acronym title, lock Establishment select for MANAGER
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { fetchStudents } from "../redux/slices/studentsSlice";
-import { apiListStudents } from "../lib/students.api"; // fetch all by name (server) ✅
+import { apiListStudents } from "../lib/students.api"; // server search
 import { EyeIcon, MagnifyingGlassIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
-import { apiListEstablishments } from "../lib/establissments.api"; // fetch all by name (server) ✅
+import { apiListEstablishments, apiGetEstablishment } from "../lib/establishments.api.js"; // +get one by id
 
 function rowOf(item) {
   const p = item.person || item;
@@ -26,22 +26,32 @@ const PERSON_TYPES = [
   { value: "staff", label: "Personnel" },
 ];
 
+// Strict acronym extraction identical to MealPlansList
+
 export default function PersonsList() {
   const dispatch = useDispatch();
   const { items = [], status, error, total = 0 } = useSelector((s) => s.students);
 
+  // Auth (to detect MANAGER + their establishment)
+  const { user } = useSelector((s) => s.auth);
+  const roleUC = String(user?.role || "").toUpperCase();
+  const isManager = roleUC === "MANAGER";
+  const managerEstId =
+    user?.establishmentId || user?.etablissementId || user?.establishment?.id || "";
+
+  // Manager establishment metadata for title
+  const [managerEstName, setManagerEstName] = useState(null);
+
   // Enforce page size 20 (fixed)
   const pageSize = 20;
-
-  // Local paging state (don’t change styles, just wire logic)
   const [page, setPage] = useState(1);
 
-  // Search state
+  // Filters
   const [q, setQ] = useState("");
-  const [personType, setPersonType] = useState("");      // "student" | "staff" | ""
+  const [personType, setPersonType] = useState("");           // "student" | "staff" | ""
   const [establishmentId, setEstablishmentId] = useState(""); // backend id ("" = all)
 
-  // Establishments (fetch all, once)
+  // Establishments
   const [estabs, setEstabs] = useState([]);
   const [estabsLoading, setEstabsLoading] = useState(true);
   const [estabsError, setEstabsError] = useState(null);
@@ -59,8 +69,7 @@ export default function PersonsList() {
       await dispatch(
         fetchStudents({
           search: q,
-          establishmentId: establishmentId || "", // empty = all
-          personType,
+          establishmentId: isManager ? managerEstId : establishmentId || "",          personType,
           page: nextPage,
           pageSize,
         })
@@ -71,7 +80,7 @@ export default function PersonsList() {
     }
   };
 
-  // Fetch ALL establishments once (increase pageSize if needed)
+  // Fetch ALL establishments once
   useEffect(() => {
     const run = async () => {
       setEstabsLoading(true);
@@ -79,7 +88,8 @@ export default function PersonsList() {
       try {
         const { data } = await apiListEstablishments({ page: 1, pageSize: 1000 });
         const items = Array.isArray(data?.items) ? data.items : [];
-        setEstabs(items);
+        const sorted = items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setEstabs(sorted);
       } catch (e) {
         setEstabsError(e?.response?.data?.message || e.message || "Erreur établissements");
       } finally {
@@ -89,6 +99,24 @@ export default function PersonsList() {
     run();
   }, []);
 
+  // LOCK + prefill for MANAGER and fetch their establishment name/acronym
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (isManager && managerEstId) {
+        setEstablishmentId(String(managerEstId));
+        try {
+         const { data } = await apiGetEstablishment(managerEstId);
+         if (!cancel) setManagerEstName(data?.name || null);
+        
+        } catch {
+         if (!cancel) setManagerEstName(null);
+        }
+      }
+    })();
+    return () => { cancel = true; };
+  }, [isManager, managerEstId]);
+
   // Initial load
   useEffect(() => {
     load({ resetPage: true });
@@ -97,7 +125,6 @@ export default function PersonsList() {
 
   // Reactive search: auto-refresh when q, personType, or establishment changes
   useEffect(() => {
-    // Debounce to avoid hammering the API as you type
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setPage(1);
@@ -115,73 +142,100 @@ export default function PersonsList() {
 
   const rows = useMemo(() => items.map(rowOf), [items]);
 
-  // Build select options
+  // Build select options; ensure manager's establishment appears even if missing
   const establishmentOptions = useMemo(() => {
     const opts = [{ id: "", name: "Tous les établissements" }];
     if (Array.isArray(estabs)) {
-      // Sorted by name for UX
       const sorted = [...estabs].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       sorted.forEach((e) => opts.push({ id: e.id, name: e.name || "—" }));
     }
+    if (isManager && managerEstId && managerEstName) {
+      const exists = opts.some((o) => String(o.id) === String(managerEstId));
+      if (!exists) opts.push({ id: String(managerEstId), name: managerEstName });
+    }
     return opts;
-  }, [estabs]);
+  }, [estabs, isManager, managerEstId, managerEstName]);
 
-  // ------- Export current page (CSV Excel-friendly) -------
- const exportCsv = async () => {
-   // Map UI -> backend type
-   const type =
-     personType.toLowerCase() === "student"
-       ? "STUDENT"
-       : personType.toLowerCase() === "staff"
-       ? "STAFF"
-       : "";
+  // Current selection object for subtitle + acronym when not manager
+  const currentEstObj =
+    establishmentOptions.find((o) => String(o.id || "") === String(establishmentId || "")) || null;
 
-   const all = [];
-   let p = 1;
-   const ps = 1000; // big pages to minimize roundtrips
-   while (true) {
-     const { data } = await apiListStudents({
-       search: q,
-       establishmentId: establishmentId || "",
-       type,
-       page: p,
-       pageSize: ps,
-     });
-     const batch = Array.isArray(data?.items) ? data.items : [];
-     all.push(...batch);
-     const totalApi = Number(data?.total || 0);
-     if (all.length >= totalApi || batch.length === 0) break;
-     p += 1;
-  }
 
-   // Shape rows like your table
-   const head = ["Matricule", "Nom", "Email", "Établissement", "Type"];
-   const lines = all.map((it) => [
-     it.matricule ?? "",
-     it.name ?? "",
-     it.email ?? "",
-     it.establishment?.name ?? "—",
-     (it.type || "").toUpperCase() === "STAFF" ? "Personnel" :
-       (it.type || "").toUpperCase() === "STUDENT" ? "Étudiant" : "—",
-   ]);
-   const csv = [head, ...lines]
-     .map((arr) =>
-       arr
-         .map((v) => {
-           const s = String(v ?? "");
-           return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-         })
-         .join(";")
-     )
-     .join("\n");
-   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-   const url = URL.createObjectURL(blob);
-   const a = document.createElement("a");
-   a.href = url;
-   a.download = `personnes_export_${all.length}.csv`;
-   a.click();
-   URL.revokeObjectURL(url);
- };
+
+  const currentEstName = isManager
+    ? (managerEstName || currentEstObj?.name || "")
+    : (currentEstObj?.name || "Tous les établissements");
+
+  // ------- Export ALL results (CSV Excel-friendly) -------
+  const exportCsv = async () => {
+    const type =
+      personType.toLowerCase() === "student"
+        ? "STUDENT"
+        : personType.toLowerCase() === "staff"
+        ? "STAFF"
+        : "";
+
+    const all = [];
+    let p = 1;
+    const ps = 1000; // big pages to minimize roundtrips
+    while (true) {
+      const { data } = await apiListStudents({
+        search: q,
+        establishmentId: establishmentId || "",
+        type,
+        page: p,
+        pageSize: ps,
+      });
+      const batch = Array.isArray(data?.items) ? data.items : [];
+      all.push(...batch);
+      const totalApi = Number(data?.total || 0);
+      if (all.length >= totalApi || batch.length === 0) break;
+      p += 1;
+    }
+
+    const title = `Personnes `;
+    const head = ["Matricule", "Nom", "Email", "Établissement", "Type"];
+    const lines = [
+      `"${title.replace(/"/g, '""')}"`,
+      "",
+      head.join(";"),
+      ...all.map((it) => {
+        const row = [
+          it.matricule ?? "",
+          it.name ?? "",
+          it.email ?? "",
+          it.establishment?.name ?? "—",
+          (it.type || "").toUpperCase() === "STAFF"
+            ? "Personnel"
+            : (it.type || "").toUpperCase() === "STUDENT"
+            ? "Étudiant"
+            : "—",
+        ];
+        return row
+          .map((v) => {
+            const s = String(v ?? "");
+            return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+          })
+          .join(";");
+      }),
+    ].join("\n");
+
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const safeTitle = title
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]+/g, "")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    const blob = new Blob(["\uFEFF" + lines], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${safeTitle || "personnes-export"}-${stamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Derived footer numbers
   const shown = Math.min(page * pageSize, total);
@@ -189,12 +243,28 @@ export default function PersonsList() {
 
   return (
     <div className="p-4 space-y-4">
-      <h1 className="text-xl font-semibold">Personnes</h1>
+      {/* Title with acronym + subtitle with establishment name */}
+      <div>
+     <h1 className="text-xl font-semibold">Personnes</h1>
+  {isManager ? (
+  <div className="text-sm text-slate-600">
+    Résultats pour l’établissement :{" "}
+    <span className="font-medium text-primary">
+      {managerEstName ?? "Chargement…"}
+    </span>
+  </div>
+) : (
+  <div className="text-sm text-slate-500">
+    {currentEstName || "Tous les établissements"}
+  </div>
+)}
 
-      {/* Search + filters (reactive, no explicit "search" button needed) */}
+      </div>
+
+      {/* Search + filters (reactive) */}
       <div className="grid gap-2 md:grid-cols-4 w-full">
         {/* Text query */}
-       <label className=" lg:col-span-1 flex items-center border rounded px-2">
+        <label className=" lg:col-span-1 flex items-center border rounded px-2">
           <MagnifyingGlassIcon className="w-5 h-5 text-slate-500" />
           <input
             className="px-2 py-2 outline-none w-full"
@@ -204,21 +274,26 @@ export default function PersonsList() {
           />
         </label>
 
-        {/* Establishment */}
-        <label className="flex items-center border rounded px-2">
-          <select
-            className="w-full py-2 bg-white outline-none"
-            value={establishmentId}
-            onChange={(e) => setEstablishmentId(e.target.value)}
-            disabled={estabsLoading}
-          >
-            {establishmentOptions.map((o) => (
-              <option key={o.id || "all"} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {/* Establishment (LOCKED for MANAGER) */}
+      {/* Establishment select — hidden if manager */}
+{!isManager && (
+  <label className="flex items-center border rounded px-2">
+    <select
+      className="w-full py-2 bg-white outline-none"
+      value={establishmentId}
+      onChange={(e) => setEstablishmentId(e.target.value)}
+      disabled={estabsLoading}
+      title="Établissement"
+    >
+      {establishmentOptions.map((o) => (
+        <option key={o.id || "all"} value={o.id}>
+          {o.name}
+        </option>
+      ))}
+    </select>
+  </label>
+)}
+
 
         {/* Person type */}
         <label className="flex items-center border rounded px-2">
@@ -235,24 +310,21 @@ export default function PersonsList() {
           </select>
         </label>
 
-        <div className=" flex items-center justify-end">
+        {/* Export icon */}
+        <div className="flex items-center justify-end">
           <button
-     type="button"
-     onClick={exportCsv}              // keep your existing handler
-     className="p-2 rounded-md border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:border-blue-300"
-     title="Exporter CSV"
-     aria-label="Exporter CSV"
-   >
-     <ArrowDownTrayIcon className="w-5 h-5" />
-   </button>
-          </div>
+            type="button"
+            onClick={exportCsv}
+            className="p-2 rounded-md border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:border-blue-300"
+            title="Exporter CSV"
+            aria-label="Exporter CSV"
+          >
+            <ArrowDownTrayIcon className="w-5 h-5" />
+          </button>
+        </div>
 
-        {/* Quick actions */}
+        {/* Errors if any */}
         <div className="md:col-span-4 flex gap-2">
-
-          {/* Small export icon button (same icon used on MealPlans list) */}
-          
-
           {estabsError && (
             <span className="text-red-600 text-sm">{String(estabsError)}</span>
           )}
@@ -316,14 +388,7 @@ export default function PersonsList() {
             {rows.map((it) => (
               <article
                 key={it.id}
-                className="
-                  relative rounded-2xl bg-white
-                  shadow-lg shadow-slate-200/70
-                  ring-1 ring-slate-200
-                  p-4
-                  transition-transform duration-150
-                  active:scale-[0.99]
-                "
+                className="relative rounded-2xl bg-white shadow-lg shadow-slate-200/70 ring-1 ring-slate-200 p-4 transition-transform duration-150 active:scale-[0.99]"
               >
                 <div className="pointer-events-none absolute inset-x-0 -top-px h-1.5 rounded-t-2xl bg-gradient-to-r from-primary/80 via-accent/70 to-emerald-400" />
                 <div className="flex items-start justify-between gap-3">
@@ -361,9 +426,8 @@ export default function PersonsList() {
             ))}
           </div>
 
-          {/* Pagination footer (keep style simple) */}
+          {/* Pagination footer */}
           <div className="flex justify-between items-center pt-2">
-            {/* Shown/Total as requested, e.g. 40/748 */}
             <div className="text-sm text-slate-600">
               {shown}/{total}
             </div>

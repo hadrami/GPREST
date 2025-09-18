@@ -7,8 +7,9 @@ import {
   ChevronRightIcon,
   ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline";
+import { useSelector } from "react-redux";
 // Use the same helper path you use in Persons list
-import { apiListEstablishments } from "../../lib/establissments.api";
+import { apiListEstablishments, apiGetEstablishment } from "../../lib/establishments.api";
 
 const MEALS = [
   { key: "",               label: "Tous les repas" },
@@ -35,18 +36,27 @@ const FunnelIcon = (props) => (
   </svg>
 );
 
+function acronymFromStrictName(name) {
+  const key = String(name || "").replace(/\s+/g, "");
+  if (key === "InstitutPréparatoireauxGrandesEcolesd'Ingénieurs(IPGEI)") return "IPGEI";
+  if (key === "InstitutSupérieurdesMétiersdelaStatistique(ISMS)")        return "ISMS";
+  if (key === "InstitutSupérieurdesMétiersdel'Energie(ISME)")            return "ISME";
+  if (key === "EcoleSupérieurePolytechnique(ESP)")                        return "ESP";
+
+}
+
 // Mobile bottom sheet that exposes the SAME filters as desktop
 function MobileFiltersSheet({
   open,
   onClose,
   meal, setMeal,
-
   establishmentId, setEstablishmentId,
   personType, setPersonType,
   order, setOrder,
   establishmentOptions,
   estabsLoading,
   onApply,
+  isManager
 }) {
   return (
     <div
@@ -67,7 +77,6 @@ function MobileFiltersSheet({
         <h3 className="text-base font-semibold mb-3">Filtres</h3>
 
         <div className="space-y-3">
-         
           {/* Meal */}
           <div>
             <label className="text-xs text-gray-600">Repas</label>
@@ -86,10 +95,11 @@ function MobileFiltersSheet({
           <div>
             <label className="text-xs text-gray-600">Établissement</label>
             <select
-              value={establishmentId}
-              onChange={(e) => setEstablishmentId(e.target.value)}
-              disabled={estabsLoading}
               className="w-full border rounded-lg px-3 py-2"
+              value={establishmentId}
+              onChange={(e)=>setEstablishmentId(e.target.value)}
+              disabled={isManager || estabsLoading}
+              title={isManager ? "Verrouillé sur votre établissement" : "Établissement"}
             >
               {establishmentOptions.map((o) => (
                 <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
@@ -165,7 +175,7 @@ export default function MealPlansList() {
   const [err, setErr]               = useState(null);
 
   // UI: expand per person
-  const [open, setOpen] = useState(() => new Set());
+   const [open, setOpen] = useState(() => new Set()); // keep structure
 
   // Establishments list (for select) — same approach as Persons list (+ fallback)
   const [estabs, setEstabs]               = useState([]);
@@ -178,7 +188,16 @@ export default function MealPlansList() {
   // debounce to avoid hammering the API
   const debounceRef = useRef(null);
 
-  // ----- Fetch establishments once (same pattern as Persons list) -----
+  const { user } = useSelector((s) => s.auth);
+  const roleUC = String(user?.role || "").toUpperCase();
+  const isManager = roleUC === "MANAGER";
+  const managerEstId =
+    user?.establishmentId || user?.etablissementId || user?.establishment?.id || "";
+console.log("managerEstId =", managerEstId);
+  const [managerEstName, setManagerEstName] = useState("");    // exact name from API
+  const [managerEstAcr, setManagerEstAcr]   = useState("—");   // acronym from that name
+
+  // ----- Fetch establishments once -----
   useEffect(() => {
     const run = async () => {
       setEstabsLoading(true);
@@ -186,7 +205,6 @@ export default function MealPlansList() {
       try {
         const { data } = await apiListEstablishments({ page: 1, pageSize: 1000 });
         const items = Array.isArray(data?.items) ? data.items : [];
-        // Sort by name for UX
         const sorted = items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         setEstabs(sorted);
       } catch (e) {
@@ -234,7 +252,7 @@ export default function MealPlansList() {
   }
 
   // initial + on page change
-  useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, [page, pageSize]);
+  useEffect(() => { fetchData();  }, [page, pageSize]);
 
   // auto-apply: debounce when key filters change
   useEffect(() => {
@@ -291,6 +309,54 @@ export default function MealPlansList() {
     return first.join(" • ") + extra;
   }
 
+  // Build select options ('' = all) and ensure manager’s establishment is present
+  const establishmentOptions = useMemo(() => {
+    const base = [{ id: "", name: "Tous les établissements" }, ...estabs];
+    if (isManager && managerEstId) {
+      const hasIt = base.some(o => String(o.id) === String(managerEstId));
+      if (!hasIt && managerEstName) {
+        base.push({ id: String(managerEstId), name: managerEstName });
+      }
+    }
+    return base;
+  }, [estabs, isManager, managerEstId, managerEstName]);
+
+  // LOCK the select for MANAGER & prefill it
+  useEffect(() => {
+    let cancel = false;
+    async function run() {
+      if (isManager && managerEstId) {
+        setEstablishmentId(String(managerEstId));
+        try {
+          const { data } = await apiGetEstablishment(managerEstId); // /establishments/:id
+          if (cancel) return;
+          const name = data?.name || "";
+          setManagerEstName(name);
+          setManagerEstAcr(acronymFromStrictName(name));
+        } catch {
+          if (!cancel) {
+            setManagerEstName("");
+            setManagerEstAcr("—");
+          }
+        }
+      }
+    }
+    run();
+    return () => { cancel = true; };
+  }, [isManager, managerEstId]);
+
+  // Current selection object (for name subtitle & acronym when not manager)
+  const currentEstObj =
+    establishmentOptions?.find(o => String(o.id || "") === String(establishmentId || "")) || null;
+
+  const currentAcronym = isManager
+    ? managerEstAcr
+    : acronymFromStrictName(currentEstObj?.name);
+
+  const currentEstName = isManager
+    ? (managerEstName || currentEstObj?.name || "")
+    : (currentEstObj?.name || "Tous les établissements");
+
   // ----- Export ALL results (fetch all pages; apply same filters; CSV) -----
   async function exportAll() {
     try {
@@ -318,8 +384,14 @@ export default function MealPlansList() {
         p++;
       }
 
+      const title = `Plans de repas — ${currentAcronym || "Tous établissements"} — ${iso(fromDate)} → ${iso(toDate)}`;
+
       const headers = ["Date","Repas","Matricule","Nom","Type","Établissement"];
-      const lines = [headers.join(",")];
+      const lines = [];
+      lines.push(`"${title.replaceAll(`"`, `""`)}"`);
+      lines.push("");
+      lines.push(headers.join(","));
+
       for (const it of all) {
         const pp = it.person || {};
         const row = [
@@ -333,12 +405,21 @@ export default function MealPlansList() {
         lines.push(row.map((s) => `"${String(s ?? "").replaceAll(`"`, `""`)}"`).join(","));
       }
 
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      // Filename: remove the eslint "useless escape" warning by keeping regex simple
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      const safeTitle = title
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-]+/g, "")
+        .replace(/-+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+      const csvText = "\uFEFF" + lines.join("\n");
+      const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-      a.download = `mealplans-export-${stamp}.csv`;
+      a.download = `${safeTitle || "mealplans-export"}-${stamp}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -348,20 +429,19 @@ export default function MealPlansList() {
     }
   }
 
-  // Build select options ('' = all)
-  const establishmentOptions = useMemo(
-    () => [{ id: "", name: "Tous les établissements" }, ...estabs],
-    [estabs]
-  );
-
   const applyFilters = () => {
-    // Trigger a fetch immediately (bypass debounce when applying from sheet)
     if (debounceRef.current) clearTimeout(debounceRef.current);
     fetchData({ resetPage: true });
   };
 
   return (
     <div className="p-4 space-y-4">
+      {isManager && (
+        <div className="mb-3 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+          Ces listes et statistiques sont limitées à votre établissement ({acronymFromStrictName(managerEstName)}).
+        </div>
+      )}
+
       {/* ===== Mobile: top bar with search + filter button ===== */}
       <div className="md:hidden flex items-center gap-2">
         <div className="flex-1 flex items-center border rounded px-2">
@@ -382,7 +462,7 @@ export default function MealPlansList() {
         </button>
       </div>
 
-      {/* ===== Mobile: prominent date range (kept as you designed it) ===== */}
+      {/* ===== Mobile: prominent date range ===== */}
       <div className="md:hidden grid grid-cols-2 gap-2">
         <label className="flex flex-col rounded-xl border border-emerald-200 bg-emerald-50 p-3">
           <span className="text-[10px] uppercase tracking-wide text-emerald-700">Du</span>
@@ -404,11 +484,25 @@ export default function MealPlansList() {
         </label>
       </div>
 
+      {/* ===== Title with acronym + subtitle with establishment name ===== */}
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">Choix de repas</h1>
+        <div>
+          <h1 className="text-xl font-semibold">
+            Choix de repas
+            {currentAcronym && currentAcronym !== "—" && (
+              <span className="ml-2 align-middle inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2 py-[2px] text-xs border border-emerald-200">
+                {currentAcronym}
+              </span>
+            )}
+          </h1>
+          <div className="text-sm text-slate-500">
+            {currentEstName || "Tous les établissements"}
+          </div>
+        </div>
+        {/* one-click export (desktop shows this in the filter bar too) */}
       </div>
 
-      {/* ===== Desktop filters bar (UNCHANGED) ===== */}
+      {/* ===== Desktop filters bar ===== */}
       <div className="hidden md:grid gap-2 md:grid-cols-7">
         {/* Search */}
         <div className="flex items-center border rounded px-2">
@@ -444,16 +538,16 @@ export default function MealPlansList() {
           ))}
         </select>
 
-        {/* Establishment (populated) */}
+        {/* Establishment (populated, locked for manager) */}
         <select
           className="border rounded px-3 py-2"
           value={establishmentId}
-          onChange={(e) => setEstablishmentId(e.target.value)}
-          disabled={estabsLoading}
-          title="Établissement"
+          onChange={(e)=>setEstablishmentId(e.target.value)}
+          disabled={estabsLoading || isManager}
+          title={isManager ? "Verrouillé sur votre établissement" : "Établissement"}
         >
           {establishmentOptions.map((o) => (
-            <option key={o.id || "all"} value={o.id}>{o.name}</option>
+            <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
           ))}
         </select>
 
@@ -566,7 +660,7 @@ export default function MealPlansList() {
             </table>
           </div>
 
-          {/* Mobile cards (ergonomic, green accent, total badge) */}
+          {/* Mobile cards */}
           <div className="md:hidden grid gap-3">
             {grouped.map((grp) => {
               const pid = grp.personId;
@@ -574,13 +668,7 @@ export default function MealPlansList() {
               return (
                 <article
                   key={pid}
-                  className="
-                    relative rounded-2xl bg-white
-                    shadow-lg shadow-slate-200/70
-                    ring-1 ring-slate-200
-                    p-4
-                    transition-transform duration-150 active:scale-[0.99]
-                  "
+                  className="relative rounded-2xl bg-white shadow-lg shadow-slate-200/70 ring-1 ring-slate-200 p-4 transition-transform duration-150 active:scale-[0.99]"
                 >
                   {/* Green accent bar */}
                   <div className={`absolute left-0 top-0 h-full w-1.5 rounded-l-2xl ${APP_GREEN}`} />
@@ -640,7 +728,7 @@ export default function MealPlansList() {
             })}
           </div>
 
-          {/* Pagination (server paginates raw rows) */}
+          {/* Pagination */}
           <div className="flex justify-between items-center pt-2">
             <div className="text-sm text-slate-600">
               Page {page} / {Math.max(1, Math.ceil(total / pageSize))} — {total} éléments
@@ -665,20 +753,18 @@ export default function MealPlansList() {
         </>
       )}
 
-      {/* ===== Mobile filters sheet (SAME filters as desktop) ===== */}
+      {/* ===== Mobile filters sheet ===== */}
       <MobileFiltersSheet
         open={mobileFiltersOpen}
         onClose={() => setMobileFiltersOpen(false)}
-        q={q} setQ={setQ}
         meal={meal} setMeal={setMeal}
-        fromDate={fromDate} setFromDate={setFromDate}
-        toDate={toDate} setToDate={setToDate}
         establishmentId={establishmentId} setEstablishmentId={setEstablishmentId}
         personType={personType} setPersonType={setPersonType}
         order={order} setOrder={setOrder}
         establishmentOptions={establishmentOptions}
         estabsLoading={estabsLoading}
         onApply={applyFilters}
+        isManager={isManager}
       />
     </div>
   );

@@ -1,12 +1,15 @@
 node_modules
 # Keep environment variables out of version control
 .env
+.env.merge
+.env.example
+
 
 /generated/prisma
 
-./seed-user.js
-./seed-stud-esp.js
-src/prisma/seed-stud-isms.js
-src/prisma/seed-stud-isme.js
-src/prisma/seed-etabliss.js
+seed-user.js
+/src/prisma/seed-stud-esp.js
+/src/prisma/seed-stud-isms.js
+/src/prisma/seed-stud-isme.js
+/src/prisma/seed-etabliss.js
 scripts

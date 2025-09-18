@@ -20,6 +20,9 @@ export default function DashboardLayout() {
 
   const roleUC = String(user?.role || "").toUpperCase();
   const isAdmin = roleUC === "ADMIN";
+  const isManager = roleUC === "MANAGER";
+  const isScanAgent = roleUC === "SCAN_AGENT";
+
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -114,35 +117,41 @@ export default function DashboardLayout() {
             to="/dashboard"
             label="Tableau de bord"
             iconPath="M3 12l2-2 7-7 7 7M9 10v10m4-10v10"
-            canClick={isAdmin}
+            canClick={isAdmin || isManager}
             onNavigate={() => setOpen(false)}
           />
           <NavItem
             to="/students"
             label="DB Personnes"
             iconPath="M5 5v14l7-4 7 4V5"
-            canClick={isAdmin}
+            canClick={isAdmin || isManager}
             onNavigate={() => setOpen(false)}
           />
           <NavItem
             to="/mealplans"
             label="Plans de repas"
             iconPath="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8v8m0 0v8m0-8H4m8 0h8"
-            canClick={isAdmin}
+            canClick={isAdmin || isManager}
             onNavigate={() => setOpen(false)}
           />
-          <NavItem
-            to="/scan"
-            label="Scanner"
+
+          {/* Scan only for admin or scan_agent */}
+  {(isAdmin || isScanAgent) && (
+    <NavItem to="/scan" 
+            label="Scanner"   
             iconPath="M3 7h18M3 12h18M3 17h18"
-            canClick={true}
-            onNavigate={() => setOpen(false)}
-          />
+       canClick={true} 
+      onNavigate={() => setOpen(false)}
+      />
+
+  )}
+
+
           <NavItem
             to="/reports/summary"
             label="Rapports"
             iconPath="M9 17V7m4 10V7m5 11H5M18 7H5"
-            canClick={isAdmin}
+            canClick={isAdmin || isManager}
             onNavigate={() => setOpen(false)}
           />
 
@@ -150,7 +159,7 @@ export default function DashboardLayout() {
   to="/prestations"              // route placeholder, on branchera plus tard
   label="Prestations"
   icon= <ReceiptText size={18} />
-  canClick={isAdmin}
+  canClick={isAdmin || isManager}
   onNavigate={() => setOpen(false)}
 />
 

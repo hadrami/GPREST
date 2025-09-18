@@ -7,7 +7,7 @@ import { useSelector } from "react-redux";
 import AuthLayout from "./layouts/AuthLayout.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 
-// Pages (same structure you already have)
+// Pages
 import MealPlansList from "./pages/mealplans/MealPlansList.jsx";
 import Summary from "./Reports/Summary.jsx";
 import StudentsList from "./Students/List.jsx";
@@ -18,21 +18,18 @@ import Dashboard from "./pages/dashboard/Dashboard.jsx";
 import Scanner from "./pages/Scanner.jsx";
 import Prestations from "./pages/Prestations.jsx";
 
-// Role-aware guard (from your new ProtectedRoute.jsx)
+// Guards
 import ProtectedRoute, { GuestOnly } from "./components/ProtectedRoute.jsx";
 
 export default function App() {
-  const { token, user, requiresPasswordChange } = useSelector((s) => s.auth);
+  const { token, user } = useSelector((s) => s.auth);
 
-  // Where to send a logged-in user by default
-  const homeFor = (role) => (role === "SCAN_AGENT" ? "/scan" : "/");
+  const homeFor = (role) =>
+    String(role || "").toUpperCase() === "SCAN_AGENT" ? "/scan" : "/dashboard";
 
   return (
     <Routes>
-      {/* Default landing:
-          - unauthenticated → /login
-          -  SCAN_AGENT→ /scanner
-          - ADMIN → / (Dashboard) */}
+      {/* Landing redirect */}
       <Route
         path="/"
         element={
@@ -44,7 +41,7 @@ export default function App() {
         }
       />
 
-      {/* Public/auth routes */}
+      {/* Public/auth layout */}
       <Route element={<AuthLayout />}>
         <Route
           path="/login"
@@ -55,26 +52,26 @@ export default function App() {
           }
         />
 
-        {/* Allow authenticated users who must change password to access this screen */}
+        {/* force password change if you use it */}
         <Route
           path="/force-password-change"
           element={
-            <ProtectedRoute allowedRoles={["ADMIN", "SCAN_AGENT"]}>
+            <ProtectedRoute allowedRoles={["ADMIN", "SCAN_AGENT", "MANAGER"]}>
               <ForcePasswordChange />
             </ProtectedRoute>
           }
         />
       </Route>
 
-      {/* App (protected under the dashboard layout) */}
+      {/* App layout */}
       <Route
         element={
-          <ProtectedRoute allowedRoles={["ADMIN", "SCAN_AGENT"]}>
+          <ProtectedRoute allowedRoles={["ADMIN", "MANAGER", "SCAN_AGENT"]}>
             <DashboardLayout />
           </ProtectedRoute>
         }
       >
-        {/* SCAN: ADMIN + SCAN_AGENT */}
+        {/* Scan page: ADMIN + SCAN_AGENT only */}
         <Route
           path="/scan"
           element={
@@ -84,82 +81,62 @@ export default function App() {
           }
         />
 
-        {/* ADMIN-ONLY below */}
+        {/* Dashboard: ADMIN + MANAGER */}
         <Route
           index
           element={
-            <ProtectedRoute allowedRoles={["ADMIN"]}>
+            <ProtectedRoute allowedRoles={["ADMIN", "MANAGER"]}>
               <Dashboard />
             </ProtectedRoute>
           }
         />
+        <Route path="/dashboard" element={<Navigate to="/" replace />} />
 
-        <Route
-          path="/dashboard"
-          element={<Navigate to="/" replace />}
-        />
-
+        {/* Students, Mealplans, Import, Summary, Prestations: ADMIN + MANAGER */}
         <Route
           path="/students"
           element={
-            <ProtectedRoute allowedRoles={["ADMIN"]}>
+            <ProtectedRoute allowedRoles={["ADMIN", "MANAGER"]}>
               <StudentsList />
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/mealplans"
           element={
-            <ProtectedRoute allowedRoles={["ADMIN"]}>
+            <ProtectedRoute allowedRoles={["ADMIN", "MANAGER"]}>
               <MealPlansList />
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/students/import"
           element={
-            <ProtectedRoute allowedRoles={["ADMIN"]}>
+            <ProtectedRoute allowedRoles={["ADMIN", "MANAGER"]}>
               <StudentsImport />
             </ProtectedRoute>
           }
         />
-
-   <Route
+        <Route
           path="/reports/summary"
           element={
-            <ProtectedRoute allowedRoles={["ADMIN"]}>
+            <ProtectedRoute allowedRoles={["ADMIN", "MANAGER"]}>
               <Summary />
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/prestations"
           element={
-            <ProtectedRoute allowedRoles={["ADMIN"]}>
+            <ProtectedRoute allowedRoles={["ADMIN", "MANAGER"]}>
               <Prestations />
             </ProtectedRoute>
           }
         />
-      
       </Route>
 
-      {/* Fallbacks */}
-      {requiresPasswordChange && token ? (
-        // If user must change password and hits an unknown URL, push to the force page
-        <Route path="*" element={<Navigate to="/force-password-change" replace />} />
-      ) : token ? (
-        // If authed but unknown URL:
-        <Route
-          path="*"
-          element={<Navigate to={homeFor(user?.role)} replace />}
-        />
-      ) : (
-        // If not authed:
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      )}
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

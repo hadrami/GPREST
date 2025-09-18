@@ -18,9 +18,9 @@ dotenv.config(); // uses DATABASE_URL
 
 const prisma = new PrismaClient();
 
-const [,, XLSX_PATH = "./List_ISMS_2025.xlsx",
-       EST_ID = "cmfe3psxl0001cpr0fi2fu5rt",
-       ACRONYM_IN = "isms"] = process.argv;
+const [,, XLSX_PATH = "./FIle or any.xlsx",
+       EST_ID = "IDof etab",
+       ACRONYM_IN = "ACRO"] = process.argv;
 const ACRONYM = String(ACRONYM_IN).toLowerCase();
 
 const clean = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
@@ -40,6 +40,7 @@ const mergeName = (prenom, nom) => {
 
 const yearFromSheetName = (n) => {
   const u = String(n || "").toUpperCase();
+   if (/\bL1\b/.test(u)) return 1;
   if (/\bL2\b/.test(u)) return 2;
   if (/\bL3\b/.test(u)) return 3;
   return null;
