@@ -105,7 +105,7 @@ export default function PersonsList() {
   useEffect(() => {
     let cancel = false;
     (async () => {
-      if (isManager && managerEstId) {
+      if (isManager && managerEstId && user) {
         setEstablishmentId(String(managerEstId));
         try {
          const { data } = await apiGetEstablishment(managerEstId);
@@ -117,7 +117,7 @@ export default function PersonsList() {
       }
     })();
     return () => { cancel = true; };
-  }, [isManager, managerEstId]);
+  }, [isManager, managerEstId, user]);
 
   // Initial load
   useEffect(() => {

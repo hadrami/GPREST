@@ -41,7 +41,9 @@ export default async function routes(fastify) {
 
     return {
       token,
-      user: { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role },
+      user: { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role 
+      , establishmentId: user.establishmentId
+      },
       requiresPasswordChange: user.mustChangePassword
     };
   });
@@ -55,6 +57,7 @@ export default async function routes(fastify) {
       username: user.username,
       email: user.email,
       role: user.role,
+      establishmentId: user.establishmentId,
       mustChangePassword: user.mustChangePassword
     };
   });

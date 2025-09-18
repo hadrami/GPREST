@@ -7,6 +7,9 @@ import {
   PrinterIcon,       // PDF export (single small icon)
   MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
+import { useSelector } from "react-redux";
+import {  apiGetEstablishment } from "../lib/establishments.api";
+
 
 const MEAL_LABEL = {
   PETIT_DEJEUNER: "Petit-déjeuner",
@@ -47,6 +50,7 @@ function MobileFiltersSheet({
   establishmentOptions,
   disableStatus,
   onApply,
+  isManager
 }) {
   return (
     <div aria-hidden={!open} className={`fixed inset-0 z-50 md:hidden ${open ? '' : 'pointer-events-none'}`}>
@@ -56,13 +60,15 @@ function MobileFiltersSheet({
         <h3 className="text-base font-semibold mb-3">Filtres</h3>
 
         <div className="space-y-3">
-          {/* Établissement */}
+           {/* Establishment */}
           <div>
             <label className="text-xs text-gray-600">Établissement</label>
             <select
-              value={estId}
-              onChange={(e) => setEstId(e.target.value)}
               className="w-full border rounded-lg px-3 py-2"
+              value={estId}
+              onChange={(e)=>setEstId(e.target.value)}
+              disabled={isManager || disableStatus}
+              title={isManager ? "Verrouillé sur votre établissement" : "Établissement"}
             >
               {establishmentOptions.map((o) => (
                 <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
@@ -133,6 +139,13 @@ export default function Summary() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [data, setData] = useState({ planned: 0, eaten: 0, noShow: 0 });
+const { user } = useSelector((s) => s.auth);
+  const isManager = String(user?.role || "").toUpperCase() === "MANAGER";
+  const managerEstId =
+    user?.establishmentId || user?.etablissementId || user?.establishment?.id || "";
+  const [managerEstName, setManagerEstName] = useState(null);
+
+
 
   // filters
   const [establishments, setEstablishments] = useState([]);
@@ -164,6 +177,25 @@ export default function Summary() {
       }
     })();
   }, []); // :contentReference[oaicite:0]{index=0}
+
+  // Manager: lock estId and fetch display name
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!(isManager && managerEstId)) return;
+      // lock filters to manager’s establishment
+      setEstId(String(managerEstId));
+      try {
+        const { data } = await apiGetEstablishment(String(managerEstId));
+        if (!cancel) setManagerEstName(data?.name || null);
+      } catch {
+        if (!cancel) setManagerEstName(null);
+      }
+    })();
+    return () => { cancel = true; };
+  }, [isManager, managerEstId]);
+
+
 
   const establishmentOptions = useMemo(
     () => [{ id: "", name: "Tous les établissements" }, ...establishments],
@@ -344,6 +376,20 @@ export default function Summary() {
 
   return (
     <div className="p-4 space-y-5">
+         {/* Establishment scope line (like List.jsx) */}
+      {isManager ? (
+        <div className="text-sm text-slate-600">
+          Statistiques pour l’établissement :{" "}
+          <span className="font-medium text-primary">
+            {managerEstName ?? "Chargement…"}
+          </span>
+        </div>
+      ) : (
+        <div className="text-sm text-slate-500">
+          {(establishmentOptions.find(e => String(e.id||"") === String(estId||""))?.name) || "Tous les établissements"}
+        </div>
+      )}
+
       {/* ===== Mobile: search + PDF + filter icon ===== */}
       <div className="md:hidden flex items-center gap-2">
         <div className="flex-1 flex items-center border rounded px-2">
@@ -418,12 +464,21 @@ export default function Summary() {
 
       {/* ===== Filters (desktop only) ===== */}
       <div className="hidden md:grid grid-cols-6 gap-3 items-end bg-accent/20 rounded-2xl p-4 ring-1 ring-accent/30">
-        <div className="flex flex-col">
-          <label className="text-xs">Établissement</label>
-          <select value={estId} onChange={(e)=>setEstId(e.target.value)} className="px-3 py-2 rounded-md border">
-            {establishmentOptions.map(e => <option key={e.id || "all"} value={e.id || ""}>{e.name}</option>)}
-          </select>
-        </div>
+           {/* Établissement (desktop) — hidden for MANAGER */}
+        {!isManager && (
+          <div>
+            <label className="text-xs text-gray-600">Établissement</label>
+            <select
+              value={estId}
+              onChange={(e) => setEstId(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2"
+            >
+              {establishmentOptions.map((o) => (
+                <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="flex flex-col">
           <label className="text-xs">Repas</label>
@@ -544,6 +599,7 @@ export default function Summary() {
         establishmentOptions={establishmentOptions}
         disableStatus={!singleDay}
         onApply={applyFilters}
+        isManager={isManager}
       />
     </div>
   );

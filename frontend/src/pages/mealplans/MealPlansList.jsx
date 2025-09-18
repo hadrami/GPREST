@@ -436,11 +436,7 @@ console.log("managerEstId =", managerEstId);
 
   return (
     <div className="p-4 space-y-4">
-      {isManager && (
-        <div className="mb-3 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
-          Ces listes et statistiques sont limitées à votre établissement ({acronymFromStrictName(managerEstName)}).
-        </div>
-      )}
+     
 
       {/* ===== Mobile: top bar with search + filter button ===== */}
       <div className="md:hidden flex items-center gap-2">
@@ -489,15 +485,19 @@ console.log("managerEstId =", managerEstId);
         <div>
           <h1 className="text-xl font-semibold">
             Choix de repas
-            {currentAcronym && currentAcronym !== "—" && (
-              <span className="ml-2 align-middle inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2 py-[2px] text-xs border border-emerald-200">
-                {currentAcronym}
-              </span>
-            )}
-          </h1>
-          <div className="text-sm text-slate-500">
-            {currentEstName || "Tous les établissements"}
-          </div>
+            </h1>
+         {isManager ? (
+  <div className="text-sm text-slate-600">
+    Résultats pour l’établissement :{" "}
+    <span className="font-medium text-primary">
+      {managerEstName ?? "Chargement…"}
+    </span>
+  </div>
+) : (
+  <div className="text-sm text-slate-500">
+    {currentEstName || "Tous les établissements"}
+  </div>
+)}
         </div>
         {/* one-click export (desktop shows this in the filter bar too) */}
       </div>
@@ -539,17 +539,23 @@ console.log("managerEstId =", managerEstId);
         </select>
 
         {/* Establishment (populated, locked for manager) */}
-        <select
-          className="border rounded px-3 py-2"
-          value={establishmentId}
-          onChange={(e)=>setEstablishmentId(e.target.value)}
-          disabled={estabsLoading || isManager}
-          title={isManager ? "Verrouillé sur votre établissement" : "Établissement"}
-        >
-          {establishmentOptions.map((o) => (
-            <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
-          ))}
-        </select>
+       {!isManager && (
+  <label className="flex items-center border rounded px-2">
+    <select
+      className="w-full py-2 bg-white outline-none"
+      value={establishmentId}
+      onChange={(e) => setEstablishmentId(e.target.value)}
+      disabled={estabsLoading}
+      title="Établissement"
+    >
+      {establishmentOptions.map((o) => (
+        <option key={o.id || "all"} value={o.id}>
+          {o.name}
+        </option>
+      ))}
+    </select>
+  </label>
+)}
 
         {/* Type */}
         <select className="border rounded px-3 py-2" value={personType} onChange={(e) => setPersonType(e.target.value)}>

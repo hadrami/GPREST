@@ -1,8 +1,14 @@
+// src/Reports/Prestations.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useSelector } from "react-redux";
 import api from "../lib/api";
 import { FileDown, Filter, Search, X } from "lucide-react";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
+import {
+  apiListEstablishments,
+  apiGetEstablishment,
+} from "../lib/establishments.api"; // unified establishments API (list + byId)
 
 const RATES = {
   student: { petitDej: 2,  dej: 5,  diner: 3  },   // MRU
@@ -35,15 +41,22 @@ function moneyForRow(type, counts) {
 }
 
 export default function Prestations() {
+  // Auth / role
+  const { user } = useSelector((s) => s.auth);
+  const isManager = String(user?.role || "").toUpperCase() === "MANAGER";
+  const managerEstId =
+    user?.establishmentId || user?.etablissementId || user?.establishment?.id || "";
+
   // Filters (auto-apply)
   const [search, setSearch] = useState("");
   const [from, setFrom]     = useState("");
   const [to, setTo]         = useState("");
-  const [etab, setEtab]     = useState(""); // name-based filter (client-side)
+  const [estId, setEstId]   = useState(""); // establishment **id** (server-side)
   const [type, setType]     = useState(""); // "" | "student" | "staff"
 
   // Data & UI
   const [estabs, setEstabs] = useState([]);
+  const [managerEstName, setManagerEstName] = useState(null);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]); // aggregated rows
   const [page, setPage] = useState(1);
@@ -54,14 +67,14 @@ export default function Prestations() {
   // Debounce for auto-apply
   const debounceRef = useRef(null);
 
-  // ---- Establishments list (auth-aware, via shared api) ----
+  // ---- Establishments list (unified API) ----
   useEffect(() => {
     const run = async () => {
       try {
-        const { data } = await api.get("/etablissements");
-        const arr = Array.isArray(data) ? data : [];
-        const norm = arr
-          .map((x, i) => ({ id: x.id ?? `E${i}`, name: x.nom || x.name || "—" }))
+        const { data } = await apiListEstablishments({ page: 1, pageSize: 1000 });
+        const items = Array.isArray(data?.items) ? data.items : [];
+        const norm = items
+          .map((x) => ({ id: x.id, name: x.name || "—" }))
           .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         setEstabs(norm);
       } catch {
@@ -69,7 +82,23 @@ export default function Prestations() {
       }
     };
     run();
-  }, []);
+  }, []); // list establishments once (same API as Summary/List) :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4}
+
+  // ---- Manager: lock establishment id + fetch display name ----
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!(isManager && managerEstId)) return;
+      setEstId(String(managerEstId)); // lock select & queries
+      try {
+        const { data } = await apiGetEstablishment(String(managerEstId));
+        if (!cancel) setManagerEstName(data?.name || null);
+      } catch {
+        if (!cancel) setManagerEstName(null);
+      }
+    })();
+    return () => { cancel = true; };
+  }, [isManager, managerEstId]); // same pattern used in Summary/List for the name line :contentReference[oaicite:5]{index=5} :contentReference[oaicite:6]{index=6}
 
   // ---- Fetch & aggregate meal plans -> per person counters ----
   const fetchMealPlans = async (params = {}, limit = PAGE_SIZE, offset = 0) => {
@@ -77,13 +106,15 @@ export default function Prestations() {
       search: params.search || "",
       from: params.from || "",
       to: params.to || "",
-      // Server supports establishmentId; we keep name client-side and filter locally.
+      // Server supports establishmentId → pass id (or leave blank for all if ADMIN)
+      establishmentId: isManager ? managerEstId : (params.establishmentId || ""),
       type: params.type || "", // 'student'/'staff' → backend uppercases internally
       limit,
       offset,
     };
 
     const { data: resp } = await api.get("/mealplans", { params: q });
+    // Note: feature routes are auth-protected & MANAGER is hard-scoped by server middleware as well. :contentReference[oaicite:7]{index=7}
 
     // Accept both shapes: array OR { items, total, ... }
     if (Array.isArray(resp)) return { data: resp, total: resp.length };
@@ -125,13 +156,13 @@ export default function Prestations() {
     setLoading(true);
     try {
       const { data = [] } = await fetchMealPlans(
-        { search, from, to, etablissement: etab, type },
+        { search, from, to, establishmentId: estId, type },
         10000,
         0
       );
       const aggregated = aggregate(data);
 
-      // If establishments select is still empty, derive from results
+      // If establishments select is still empty, derive from results (kept)
       if (estabs.length === 0 && Array.isArray(data)) {
         const uniq = new Map();
         for (const it of data) {
@@ -139,7 +170,8 @@ export default function Prestations() {
           if (nm && !uniq.has(nm)) uniq.set(nm, { id: nm, name: nm });
         }
         if (uniq.size > 0) {
-          setEstabs(Array.from(uniq.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+          const arr = Array.from(uniq.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+          setEstabs(arr);
         }
       }
 
@@ -169,7 +201,7 @@ export default function Prestations() {
     debounceRef.current = setTimeout(() => runQuery(), 300);
     return () => clearTimeout(debounceRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, from, to, etab, type]);
+  }, [search, from, to, estId, type]);
 
   const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -181,10 +213,10 @@ export default function Prestations() {
           (row.fullName || "").toLowerCase().includes(term)
       );
     }
-    if (etab) r = r.filter((x) => (x.etablissement || "") === etab);
+    // estId is applied server-side; type is also passed server-side → keep local filter for type just in case
     if (type) r = r.filter((x) => (x.type || "") === type);
     return r;
-  }, [rows, search, etab, type]);
+  }, [rows, search, type]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -207,6 +239,17 @@ export default function Prestations() {
     [filteredRows]
   );
 
+  const establishmentOptions = useMemo(
+    () => [{ id: "", name: "Tous les établissements" }, ...estabs],
+    [estabs]
+  );
+
+  const currentEstName = useMemo(() => {
+    if (isManager) return managerEstName || "…";
+    const match = establishmentOptions.find((o) => String(o.id || "") === String(estId || ""));
+    return match?.name || "Tous les établissements";
+  }, [isManager, managerEstName, establishmentOptions, estId]);
+
   const exportPDF = () => {
     try {
       const doc = new jsPDF({ orientation: "landscape" });
@@ -215,8 +258,9 @@ export default function Prestations() {
       const filterLines = [
         from ? `De: ${from}` : null,
         to ? `À: ${to}` : null,
-        etab ? `Établissement: ${etab}` : null,
-        type ? `Type: ${type}` : null,
+        // Always state the establishment scope in the export, like Summary
+        `Établissement: ${currentEstName || (isManager ? "…" : "Tous")}`,
+        type ? `Type: ${type === "staff" ? "Personnel" : type === "student" ? "Étudiant" : type}` : null,
         search ? `Recherche: ${search}` : null,
       ]
         .filter(Boolean)
@@ -259,285 +303,267 @@ export default function Prestations() {
     }
   };
 
+  // ---------------- UI ----------------
   return (
     <div className="p-4 space-y-4">
-      {/* Header (no PDF here to avoid duplicates) */}
+      {/* Title */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Prestations</h1>
+        <button
+          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+          onClick={exportPDF}
+          title="Exporter en PDF"
+        >
+          <FileDown size={18} />
+          Exporter
+        </button>
       </div>
 
-      {/* ===== Mobile: search + filters button + PDF ===== */}
-      <div className="md:hidden space-y-2">
-        <div className="flex items-end gap-2">
-          <div className="flex-1">
-            <label className="text-xs text-slate-600">Recherche</label>
-            <div className="relative">
-              <Search className="absolute left-2 top-2.5 text-slate-500" size={16} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Matricule ou nom"
-                className="pl-8 pr-3 py-2 w-full border rounded-lg outline-none focus:ring"
-              />
-            </div>
+      {/* Subtitle: establishment scope (like Summary/List) */}
+      {isManager ? (
+        <div className="text-sm text-slate-600">
+          Résultats pour l’établissement :{" "}
+          <span className="font-medium text-primary">
+            {managerEstName ?? "Chargement…"}
+          </span>
+        </div>
+      ) : (
+        <div className="text-sm text-slate-500">
+          {currentEstName || "Tous les établissements"}
+        </div>
+      )}
+
+      {/* Filters toolbar */}
+      <div className="flex items-center gap-2">
+        {/* Mobile open */}
+        <button
+          className="md:hidden inline-flex items-center gap-1 rounded-md border px-3 py-2 text-sm"
+          onClick={() => setShowFiltersMobile(true)}
+        >
+          <Filter size={16} />
+          Filtres
+        </button>
+
+        {/* Desktop filters */}
+        <div className="hidden md:flex items-end gap-3 flex-wrap">
+          {/* Search */}
+          <label className="flex items-center gap-2 border rounded px-2">
+            <Search size={16} className="text-slate-500" />
+            <input
+              className="px-1 py-2 outline-none"
+              placeholder="Rechercher (matricule, nom…)"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+
+          {/* Dates */}
+          <div>
+            <label className="text-xs text-gray-600">Du</label>
+            <input
+              type="date"
+              className="w-full border rounded px-3 py-2"
+              value={formatDateInput(from)}
+              onChange={(e) => setFrom(e.target.value)}
+            />
           </div>
-          <button
-            onClick={() => setShowFiltersMobile(true)}
-            className="px-3 py-2 rounded-lg border inline-flex items-center gap-2"
-          >
-            <Filter size={16} /> Filtres
-          </button>
-          <button onClick={exportPDF} className="p-2 rounded-lg border" title="Exporter en PDF" aria-label="Exporter PDF">
-            <FileDown size={16} />
-          </button>
-        </div>
-
-        {/* Date range cards */}
-        <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-            <span className="text-[10px] uppercase tracking-wide text-emerald-700">Du</span>
+          <div>
+            <label className="text-xs text-gray-600">Au</label>
             <input
               type="date"
-              className="mt-1 text-base sm:text-lg font-semibold text-emerald-900 bg-transparent outline-none"
-              value={from}
-              onChange={(e) => setFrom(formatDateInput(e.target.value))}
+              className="w-full border rounded px-3 py-2"
+              value={formatDateInput(to)}
+              onChange={(e) => setTo(e.target.value)}
             />
-          </label>
-          <label className="flex flex-col rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-            <span className="text-[10px] uppercase tracking-wide text-emerald-700">Au</span>
-            <input
-              type="date"
-              className="mt-1 text-base sm:text-lg font-semibold text-emerald-900 bg-transparent outline-none"
-              value={to}
-              onChange={(e) => setTo(formatDateInput(e.target.value))}
-            />
-          </label>
-        </div>
+          </div>
 
-        {/* Mobile filters sheet (auto-applies on change) */}
-        {showFiltersMobile && (
-          <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setShowFiltersMobile(false)}>
-            <div
-              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl p-4 space-y-3"
-              onClick={(e) => e.stopPropagation()}
+          {/* Establishment — hidden for MANAGER */}
+          {!isManager && (
+            <div>
+              <label className="text-xs text-gray-600">Établissement</label>
+              <select
+                value={estId}
+                onChange={(e) => setEstId(e.target.value)}
+                className="w-full border rounded px-3 py-2 bg-white"
+              >
+                {establishmentOptions.map((o) => (
+                  <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Type */}
+          <div>
+            <label className="text-xs text-gray-600">Type</label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              className="w-full border rounded px-3 py-2 bg-white"
             >
-              <div className="flex items-center justify-between">
-                <h3 className="font-medium">Filtres avancés</h3>
-                <button onClick={() => setShowFiltersMobile(false)} className="p-1 rounded hover:bg-gray-100" aria-label="Fermer">
-                  <X size={16} />
-                </button>
+              <option value="">Tous</option>
+              <option value="student">Étudiant</option>
+              <option value="staff">Personnel</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile sheet */}
+      {showFiltersMobile && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowFiltersMobile(false)} />
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-xl p-4">
+            <div className="h-1 w-12 bg-gray-300 rounded-full mx-auto mb-3" />
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold">Filtres</h3>
+              <button onClick={() => setShowFiltersMobile(false)} className="p-2">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Search */}
+              <div>
+                <label className="text-xs text-gray-600">Recherche</label>
+                <div className="flex items-center gap-2 border rounded px-2">
+                  <Search size={16} className="text-slate-500" />
+                  <input
+                    className="px-1 py-2 outline-none w-full"
+                    placeholder="Matricule, nom…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
               </div>
 
-              <div className="space-y-3">
+              {/* Dates */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-600">Du</label>
+                  <input
+                    type="date"
+                    className="w-full border rounded px-3 py-2"
+                    value={formatDateInput(from)}
+                    onChange={(e) => setFrom(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600">Au</label>
+                  <input
+                    type="date"
+                    className="w-full border rounded px-3 py-2"
+                    value={formatDateInput(to)}
+                    onChange={(e) => setTo(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Établissement — hidden for MANAGER */}
+              {!isManager && (
                 <div>
                   <label className="text-xs text-gray-600">Établissement</label>
                   <select
-                    value={etab}
-                    onChange={(e) => setEtab(e.target.value)}
-                    className="block border rounded-lg px-3 py-2 w-full"
+                    value={estId}
+                    onChange={(e) => setEstId(e.target.value)}
+                    className="w-full border rounded px-3 py-2"
                   >
-                    <option value="">Tous</option>
-                    {estabs.map((o) => (
-                      <option key={o.id || o.name} value={o.name || ""}>
-                        {o.name || "—"}
-                      </option>
+                    {establishmentOptions.map((o) => (
+                      <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="text-xs text-gray-600">Type</label>
-                  <select
-                    value={type}
-                    onChange={(e) => setType(e.target.value)}
-                    className="block border rounded-lg px-3 py-2 w-full"
-                  >
-                    <option value="">Tous</option>
-                    <option value="student">Étudiant</option>
-                    <option value="staff">Personnel</option>
-                  </select>
-                </div>
+              )}
+
+              {/* Type */}
+              <div>
+                <label className="text-xs text-gray-600">Type</label>
+                <select
+                  value={type}
+                  onChange={(e) => setType(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                >
+                  <option value="">Tous</option>
+                  <option value="student">Étudiant</option>
+                  <option value="staff">Personnel</option>
+                </select>
               </div>
 
-              <div className="pt-2 flex justify-end">
-                <button onClick={() => setShowFiltersMobile(false)} className="px-3 py-2 rounded-lg border">
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => { setShowFiltersMobile(false); }}
+                  className="flex-1 rounded-xl px-4 py-2 bg-emerald-600 text-white font-medium"
+                >
                   Fermer
                 </button>
               </div>
             </div>
           </div>
-        )}
-      </div>
-
-      {/* ===== Desktop filters bar (auto-apply) ===== */}
-      <div className="hidden md:grid gap-2 md:grid-cols-7 items-end">
-        {/* Search */}
-        <div className="flex items-center border rounded px-2">
-          <Search className="w-5 h-5 text-slate-500" />
-          <input
-            className="px-2 py-2 outline-none w-full"
-            placeholder="Rechercher (matricule ou nom)"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
         </div>
-
-        {/* Dates */}
-        <input
-          type="date"
-          className="border rounded px-3 py-2"
-          value={from}
-          onChange={(e) => setFrom(formatDateInput(e.target.value))}
-          title="Date de début"
-        />
-        <input
-          type="date"
-          className="border rounded px-3 py-2"
-          value={to}
-          onChange={(e) => setTo(formatDateInput(e.target.value))}
-          title="Date de fin"
-        />
-
-        {/* Etablissement */}
-        <select
-          className="border rounded px-3 py-2"
-          value={etab}
-          onChange={(e) => setEtab(e.target.value)}
-          title="Établissement"
-        >
-          <option value="">Tous</option>
-          {estabs.map((o) => (
-            <option key={o.id || o.name} value={o.name || ""}>
-              {o.name || "—"}
-            </option>
-          ))}
-        </select>
-
-        {/* Type */}
-        <select
-          className="border rounded px-3 py-2"
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-        >
-          <option value="">Tous</option>
-          <option value="student">Étudiant</option>
-          <option value="staff">Personnel</option>
-        </select>
-
-        {/* Export (desktop) */}
-        <button
-          onClick={exportPDF}
-          title="Exporter (PDF)"
-          className="inline-flex items-center justify-center gap-1 px-2 py-2 rounded hover:bg-emerald-50"
-          aria-label="Exporter PDF"
-        >
-          <FileDown size={18} className="text-emerald-600" />
-        </button>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Petit dej (plans)" value={grandTotals.petitDej} />
-        <StatCard label="Déj (plans)" value={grandTotals.dej} />
-        <StatCard label="Dîner (plans)" value={grandTotals.diner} />
-        <StatCard label="Total MRU" value={`${grandTotals.mru} MRU`} />
-      </div>
+      )}
 
       {/* Table */}
-      <div className="overflow-auto border rounded-xl">
-        <table className="min-w-[900px] w-full">
-          <thead className="bg-slate-50 text-left">
+      <div className="overflow-x-auto border rounded">
+        <table className="min-w-[900px] w-full text-sm">
+          <thead className="bg-slate-50">
             <tr>
-              <Th>#</Th>
-              <Th>Matricule</Th>
-              <Th>Nom</Th>
-              <Th>Établissement</Th>
-              <Th>Type</Th>
-              <Th className="text-center">Petit dej</Th>
-              <Th className="text-center">Déj</Th>
-              <Th className="text-center">Dîner</Th>
-              <Th className="text-right">Total (MRU)</Th>
+              <th className="text-left p-2">#</th>
+              <th className="text-left p-2">Matricule</th>
+              <th className="text-left p-2">Nom</th>
+              <th className="text-left p-2">Établissement</th>
+              <th className="text-left p-2">Type</th>
+              <th className="text-right p-2">Petit déj</th>
+              <th className="text-right p-2">Déj</th>
+              <th className="text-right p-2">Dîner</th>
+              <th className="text-right p-2">Total (MRU)</th>
             </tr>
           </thead>
           <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={9} className="p-4 text-center text-slate-500">Chargement…</td>
-              </tr>
-            )}
-            {!loading && pageRows.length === 0 && (
-              <tr>
-                <td colSpan={9} className="p-4 text-center text-slate-500">Aucune donnée</td>
-              </tr>
-            )}
-            {!loading &&
+            {loading ? (
+              <tr><td className="p-3 text-slate-500" colSpan={9}>Chargement…</td></tr>
+            ) : pageRows.length === 0 ? (
+              <tr><td className="p-3 text-slate-500" colSpan={9}>Aucun résultat</td></tr>
+            ) : (
               pageRows.map((r, i) => (
                 <tr key={`${r.matricule}-${i}`} className="border-t">
-                  <Td>{(page - 1) * PAGE_SIZE + i + 1}</Td>
-                  <Td>{r.matricule}</Td>
-                  <Td>{r.fullName}</Td>
-                  <Td>{r.etablissement}</Td>
-                  <Td>{r.type === "staff" ? "Personnel" : "Étudiant"}</Td>
-                  <Td className="text-center">{r.counts.petitDej}</Td>
-                  <Td className="text-center">{r.counts.dej}</Td>
-                  <Td className="text-center">{r.counts.diner}</Td>
-                  <Td className="text-right font-semibold">{r.total}</Td>
+                  <td className="p-2">{(page - 1) * PAGE_SIZE + i + 1}</td>
+                  <td className="p-2">{r.matricule || "—"}</td>
+                  <td className="p-2">{r.fullName || "—"}</td>
+                  <td className="p-2">{r.etablissement || "—"}</td>
+                  <td className="p-2">{r.type === "staff" ? "Personnel" : "Étudiant"}</td>
+                  <td className="p-2 text-right">{r.counts.petitDej}</td>
+                  <td className="p-2 text-right">{r.counts.dej}</td>
+                  <td className="p-2 text-right">{r.counts.diner}</td>
+                  <td className="p-2 text-right">{r.total}</td>
                 </tr>
-              ))}
+              ))
+            )}
           </tbody>
-
-          {!loading && filteredRows.length > 0 && (
-            <tfoot className="bg-slate-50 border-t">
-              <tr>
-                <Td colSpan={5} className="font-semibold">TOTAL</Td>
-                <Td className="text-center font-semibold">{grandTotals.petitDej}</Td>
-                <Td className="text-center font-semibold">{grandTotals.dej}</Td>
-                <Td className="text-center font-semibold">{grandTotals.diner}</Td>
-                <Td className="text-right font-bold">{grandTotals.mru}</Td>
-              </tr>
-            </tfoot>
-          )}
         </table>
       </div>
 
-      {/* Pagination + shown/total */}
-      <div className="flex items-center justify-between text-sm">
-        <div>
-          Affichés: <span className="font-medium">{Math.min(page * PAGE_SIZE, filteredRows.length)}</span> /{" "}
-          <span className="font-medium">{filteredRows.length}</span>
+      {/* Pagination */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-slate-500">
+          Page {page} / {totalPages}
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="px-3 py-1 border rounded disabled:opacity-50"
             disabled={page <= 1}
-            className="px-3 py-1.5 border rounded disabled:opacity-50"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
             Précédent
           </button>
-          <span>Page {page} / {totalPages}</span>
           <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            className="px-3 py-1 border rounded disabled:opacity-50"
             disabled={page >= totalPages}
-            className="px-3 py-1.5 border rounded disabled:opacity-50"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
           >
             Suivant
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Th({ children, className = "" }) {
-  return <th className={`px-3 py-2 text-xs font-semibold text-slate-700 ${className}`}>{children}</th>;
-}
-function Td({ children, className = "", colSpan }) {
-  return <td colSpan={colSpan} className={`px-3 py-2 ${className}`}>{children}</td>;
-}
-function StatCard({ label, value }) {
-  return (
-    <div className="rounded-2xl border p-3 shadow-sm bg-emerald-50 border-emerald-200">
-      <div className="text-xs text-emerald-700">{label}</div>
-      <div className="text-lg font-semibold text-emerald-900">{value}</div>
     </div>
   );
 }
