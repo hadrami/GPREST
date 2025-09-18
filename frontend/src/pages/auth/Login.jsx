@@ -1,7 +1,7 @@
 // src/pages/Login.jsx
 import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector} from "react-redux";
-import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { login, clearError } from "../../redux/slices/authSlice";
 
 export default function Login() {
@@ -14,7 +14,6 @@ export default function Login() {
 
   const { status, error, token, user, requiresPasswordChange } = useSelector((s) => s.auth);
   const isLoading = status === "loading";
-  const loc = useLocation();
 
   useEffect(() => {
     if (!token) return;
@@ -29,17 +28,14 @@ export default function Login() {
     return () => { dispatch(clearError()); };
   }, [dispatch]);
 
-  const submit = (e) => {
-      e.preventDefault(); // <-- IMPORTANT: avoid full page reload
+const submit = async (e) => {
+    e.preventDefault();
     dispatch(clearError());
-    const res =  dispatch(login({ username, password })).unwrap();
-    if (res.meta.requestStatus === "fulfilled") {
-      const role = res.payload?.user?.role;
-      const next =
-        (loc.state && loc.state.from?.pathname) ||
-        (role === "SCAN_AGENT" ? "/scan" : "/dashboard");
-
-      navigate(next, { replace: true });
+    try {
+      // Will set token/user in Redux; your useEffect will handle redirects
+      await dispatch(login({ username, password })).unwrap();
+    } catch {/*err*/} {
+      // error message is already set in slice; nothing else to do here
     }
   };
 

@@ -1,236 +1,200 @@
+// scripts/seed-stud-isme.mjs
+//
 // Usage:
-//   node src/prisma/seed-stud-isme.js /path/to/liste_Elèves_ISME_SP.xlsx [establishmentId] [emailDomain]
+//   node scripts/seed-stud-isme.mjs ./liste_Etudiants_ISME.xlsx cmfe3psxq0002cpr0z8ki8frr isme
 //
-// Examples:
-//   node src/prisma/seed-stud-isme.js ./liste_Elèves_ISME_SP.xlsx
-//   node src/prisma/seed-stud-isme.js ./liste_Elèves_ISME_SP.xlsx cmXXXXXXXX isme.mr
+// Args:
+//   [2] xlsxPath         - Excel file path
+//   [3] establishmentId  - ISME establishment id
+//   [4] acronym          - email suffix (default: "isme") -> email = `${matricule}@${acronym}`
 //
-// Notes:
-// - Scans **all sheets** (each year) in the workbook.
-// - Detects header row by looking for a cell "matricule" (robust to accents/case) in the first 20 rows.
-// - Expects ONE full name column like "Nom et Prénom" (many variants handled).
-// - Upserts by unique `matricule` into `person` with type "STUDENT".
-// - Email generated as `${matricule}@<emailDomain>` (default "isme.mr").
-// - If no establishmentId is given, tries to find an establishment whose name contains "ISME" (case-insensitive).
+// Requirements:
+//   - DATABASE_URL in your .env
+//   - npm i @prisma/client xlsx
+//   - npx prisma generate
 
 import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
-import fs from "fs";
-import * as XLSX from "xlsx";
+import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
+import * as path from "node:path";
+import * as XLSX from "xlsx/xlsx.mjs"; // ESM build
+XLSX.set_fs(fs); // enable readFile/writeFile in Node
+
 import { PrismaClient } from "@prisma/client";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, "../../.env") });
-
+dotenv.config();
 const prisma = new PrismaClient();
 
+const [,, XLSX_PATH_IN, ESTABLISHMENT_ID_IN, ACRONYM_IN] = process.argv;
+const XLSX_PATH = XLSX_PATH_IN || "./liste_Etudiants_ISME.xlsx";
+const EST_ID    = ESTABLISHMENT_ID_IN || "cmfe3psxq0002cpr0z8ki8frr"; // ISME default
+const ACRONYM   = (ACRONYM_IN || "isme").toLowerCase();
+
 // ---------- helpers ----------
-function stripAccents(s) {
-  return s?.normalize("NFD").replace(/\p{Diacritic}+/gu, "") || "";
+const clean = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+const toStringKeep = (v) => (v == null ? "" : String(v).trim());
+const deaccentLower = (s) =>
+  clean(s).normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+const titleCase = (s) =>
+  clean(s).toLowerCase().replace(/\b\p{L}+/gu, (w) => w[0].toUpperCase() + w.slice(1));
+
+function mergeNameParts(prenom, nom) {
+  const P = titleCase(prenom);
+  const N = titleCase(nom);
+  return clean([P, N].filter(Boolean).join(" "));
 }
-function normCell(v) {
-  // normalize: lowercase, strip accents, remove spaces & non-alnum
-  return stripAccents(String(v ?? ""))
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/[^a-z0-9]/g, "");
+
+function yearFromSheetName(name) {
+  const n = String(name || "").toUpperCase();
+  // tolerant to "L1", "L1 2025", "1ERE", "PREMIERE", etc.
+  if (/\bL\s*1\b|1ERE|PREMIERE/.test(n)) return 1;
+  if (/\bL\s*2\b|2EME|DEUXIEME/.test(n)) return 2;
+  if (/\bL\s*3\b|3EME|TROISIEME/.test(n)) return 3;
+  return null;
 }
-function safeString(v) {
-  return v == null ? "" : String(v).trim();
+
+function pickIndex(headers, ...candidates) {
+  const H = headers.map(deaccentLower);
+  const C = candidates.map(deaccentLower);
+  for (const c of C) {
+    const i = H.findIndex((h) => h === c || h.includes(c));
+    if (i !== -1) return i;
+  }
+  return -1;
 }
-function titleCase(s) {
-  return safeString(s)
-    .toLowerCase()
-    .replace(/\b\p{L}/gu, (m) => m.toUpperCase());
+
+function findHeaderRow(rows2D) {
+  // pick the first row that looks like a header (contains "matricule" or similar)
+  for (let i = 0; i < rows2D.length; i++) {
+    const r = rows2D[i] || [];
+    const hasMat = r.some((c) => deaccentLower(c).includes("matricule") || deaccentLower(c).includes("mat"));
+    if (hasMat) return i;
+  }
+  return 0; // fallback
 }
-function detectHeaderRow(rows2D, lookFor = "matricule", maxScan = 20) {
-  const target = normCell(lookFor);
-  const limit = Math.min(rows2D.length, maxScan);
-  for (let r = 0; r < limit; r++) {
+
+// ---------- import logic ----------
+async function importSheet(ws, sheetName) {
+  const rows2D = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  if (!rows2D.length) {
+    return { created: 0, updated: 0, skipped: 0, problems: [`${sheetName}: feuille vide`] };
+  }
+
+  const headerIdx = findHeaderRow(rows2D);
+  const headers   = (rows2D[headerIdx] || []).map(String);
+
+  const iMat      = pickIndex(headers, "matricule", "mat");
+  // allow either one-column full name OR (nom + prenom)
+  const iNameFull = pickIndex(headers, "nom et prenom", "nom/prenom", "nom complet", "name", "full name");
+  const iNom      = pickIndex(headers, "nom", "last name", "lastname", "family name");
+  const iPrenom   = pickIndex(headers, "prenom", "prénom", "first name", "firstname", "given name");
+
+  if (iMat === -1) {
+    return { created: 0, updated: 0, skipped: rows2D.length, problems: [`${sheetName}: colonne 'matricule' introuvable`] };
+  }
+  if (iNameFull === -1 && (iNom === -1 || iPrenom === -1)) {
+    return { created: 0, updated: 0, skipped: rows2D.length, problems: [`${sheetName}: colonne 'nom et prénom' ou ('nom','prenom') introuvables`] };
+  }
+
+  const studentYear = yearFromSheetName(sheetName);
+  if (!studentYear) {
+    return { created: 0, updated: 0, skipped: rows2D.length, problems: [`${sheetName}: année non détectée (attendu L1/L2/L3)`] };
+  }
+
+  let created = 0, updated = 0, skipped = 0;
+  const problems = [];
+
+  for (let r = headerIdx + 1; r < rows2D.length; r++) {
     const row = rows2D[r] || [];
-    for (let c = 0; c < row.length; c++) {
-      if (normCell(row[c]) === target) return r;
-    }
-  }
-  return -1;
-}
-function findColumnIndex(headerRow, ...candidates) {
-  const headerNorm = headerRow.map(normCell);
-  for (const candidate of candidates) {
-    const idx = headerNorm.indexOf(normCell(candidate));
-    if (idx !== -1) return idx;
-  }
-  return -1;
-}
+    const matricule = toStringKeep(row[iMat]);
+    if (!matricule) { skipped++; continue; }
 
-async function resolveEstablishmentId(maybeId) {
-  if (maybeId) return maybeId;
-  const est = await prisma.establishment.findFirst({
-    where: { name: { contains: "ISME", mode: "insensitive" } },
-    select: { id: true, name: true },
-  });
-  if (!est?.id) {
-    throw new Error(
-      "Aucun établissement 'ISME' détecté. Passez l'ID en 2ᵉ argument."
-    );
-  }
-  console.log(`🏫 Établissement: ${est.name} (${est.id})`);
-  return est.id;
-}
-
-// ---------- main ----------
-async function main() {
-  const xlsxPathArg = process.argv[2];
-  const establishmentId = await resolveEstablishmentId(process.argv[3]).catch((e) => {
-    console.error("❌", e.message);
-    process.exit(1);
-  });
-  const emailDomain = (process.argv[4] || "isme.mr").replace(/^@/, "");
-
-  if (!xlsxPathArg) {
-    console.error("Usage: node src/prisma/seed-stud-isme.js <file.xlsx> [establishmentId] [emailDomain]");
-    process.exit(1);
-  }
-
-  const xlsxPath = path.isAbsolute(xlsxPathArg)
-    ? xlsxPathArg
-    : path.resolve(process.cwd(), xlsxPathArg);
-
-  console.log("🔎 Lecture du classeur:", xlsxPath);
-  const buf = fs.readFileSync(xlsxPath);
-  const wb = XLSX.read(buf, { type: "buffer", cellDates: false });
-
-  let totalCreated = 0, totalUpdated = 0, totalProblems = 0;
-
-  for (const sheetName of wb.SheetNames) {
-    const ws = wb.Sheets[sheetName];
-    const rows2D = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-    if (!rows2D.length) {
-      console.log(`⚠️ Feuille vide: ${sheetName}`);
-      continue;
-    }
-
-    // Locate header row
-    const headerRowIndex = detectHeaderRow(rows2D, "matricule", 20);
-    if (headerRowIndex === -1) {
-      console.log(`⚠️ Pas de colonne 'matricule' détectée dans "${sheetName}" → feuille ignorée.`);
-      continue;
-    }
-
-    const header = rows2D[headerRowIndex];
-    const dataRows = rows2D.slice(headerRowIndex + 1);
-
-    // Columns:
-    // matricule (try to find, fallback to 3rd col index=2 like your earlier sheets)
-    let colMat = findColumnIndex(
-      header,
-      "matricule", "n° matricule", "n matricule", "nmatricule", "n°matricule", "mat"
-    );
-    if (colMat === -1) colMat = 2; // fallback
-
-    // FULL NAME column (single)
-    // handle typical variants in French and normalized compact forms
-    const fullNameCandidates = [
-      "nom et prénom",
-      "nom et prenom",
-      "nom&prénom",
-      "nom&prenom",
-      "nom_prénom",
-      "nom_prenom",
-      "nomprenom",
-      "nom complet",
-      "nomcomplet",
-      "fullname",
-      "name",
-    ];
-    let colFull = findColumnIndex(header, ...fullNameCandidates);
-    // As a last resort, try to guess a column named something like 'nom'
-    if (colFull === -1) {
-      colFull = findColumnIndex(header, "nom");
-    }
-
-    if (colFull === -1) {
-      console.log(
-        `⚠️ Aucune colonne "Nom et Prénom" (ou équivalent) détectée dans "${sheetName}" → feuille ignorée.`
-      );
-      continue;
-    }
-
-    let created = 0, updated = 0;
-    const problems = [];
-
-    for (let i = 0; i < dataRows.length; i++) {
-      const r = dataRows[i];
-      const rowIndex1 = headerRowIndex + 2 + i;
-
-      const matricule = safeString(r[colMat]);
-      if (!matricule) {
-        problems.push({ row: rowIndex1, reason: "Matricule manquant" });
-        continue;
+    let name = "";
+    if (iNameFull !== -1) {
+      name = clean(row[iNameFull] || "");
+      if (!name) {
+        // fallback if empty full-name cell but we have parts
+        const nom = clean(row[iNom] || "");
+        const prenom = clean(row[iPrenom] || "");
+        name = mergeNameParts(prenom, nom) || matricule;
+      } else {
+        // normalize casing
+        name = name.split(/\s+/).map(titleCase).join(" ");
       }
+    } else {
+      const nom = clean(row[iNom] || "");
+      const prenom = clean(row[iPrenom] || "");
+      name = mergeNameParts(prenom, nom) || matricule;
+    }
 
-      const fullNameRaw = safeString(r[colFull]);
-      if (!fullNameRaw) {
-        problems.push({ row: rowIndex1, matricule, reason: "Nom et Prénom manquant" });
-        continue;
-      }
+    const email = `${matricule}@${ACRONYM}`;
 
-      // Keep original casing but trim; optional titleCase if you prefer:
-      const name = fullNameRaw.trim(); // or: titleCase(fullNameRaw)
-      const email = `${matricule}@${emailDomain}`;
+    try {
+      const existing = await prisma.person.findUnique({
+        where: { matricule },
+        select: { id: true },
+      });
 
-      try {
-        const existing = await prisma.person.findUnique({
+      if (existing) {
+        await prisma.person.update({
           where: { matricule },
-          select: { id: true },
+          data: {
+            name,
+            email,
+            establishmentId: EST_ID,
+            type: "STUDENT",
+            studentYear, // <-- your Prisma field for the student's year
+          },
         });
-
-        if (!existing) {
-          await prisma.person.create({
-            data: {
-              matricule,
-              name,
-              email,
-              establishmentId,
-              type: "STUDENT",
-            },
-          });
-          created++;
-        } else {
-          await prisma.person.update({
-            where: { matricule },
-            data: {
-              name,
-              email,
-              establishmentId,
-              type: "STUDENT",
-            },
-          });
-          updated++;
-        }
-      } catch (e) {
-        problems.push({ row: rowIndex1, matricule, reason: e.message });
+        updated++;
+      } else {
+        await prisma.person.create({
+          data: {
+            matricule,
+            name,
+            email,
+            establishmentId: EST_ID,
+            type: "STUDENT",
+            studentYear, // <-- if your field is `year`, rename this key to `year`
+          },
+        });
+        created++;
       }
+    } catch (e) {
+      problems.push(`Ligne ${r + 1}: ${e?.message || e}`);
     }
-
-    console.log(
-      `📄 Feuille: ${sheetName} → Créés: ${created} — MAJ: ${updated} — Problèmes: ${problems.length}`
-    );
-    if (problems.length) {
-      console.table(problems.slice(0, 10));
-      if (problems.length > 10) console.log(`… +${problems.length - 10} autres`);
-    }
-
-    totalCreated += created;
-    totalUpdated += updated;
-    totalProblems += problems.length;
   }
 
-  console.log("✅ Import ISME terminé.");
-  console.log("Totaux → Créés:", totalCreated, "— Mis à jour:", totalUpdated, "— Problèmes:", totalProblems);
+  return { created, updated, skipped, problems };
+}
+
+async function main() {
+  try { await fsp.access(XLSX_PATH); }
+  catch { console.error(`❌ Fichier introuvable: ${XLSX_PATH}`); process.exit(1); }
+
+  console.log(`📄 Lecture: ${path.basename(XLSX_PATH)} (ISME)`);
+  const wb = XLSX.readFile(XLSX_PATH);
+
+  // Only sheets that look like L1/L2/L3
+  const sheets = wb.SheetNames.filter((n) => /\bL\s*([123])\b|1ere|2eme|3eme|premiere|deuxieme|troisieme/i.test(String(n)));
+  if (!sheets.length) {
+    console.log(`⚠️ Aucune feuille L1/L2/L3 trouvée. Feuilles: ${wb.SheetNames.join(", ")}`);
+  }
+
+  let totalC = 0, totalU = 0, totalS = 0, totalP = 0;
+  for (const s of sheets) {
+    const yr = yearFromSheetName(s);
+    console.log(`→ Import ${s} (year ${yr ?? "?"})`);
+    const res = await importSheet(wb.Sheets[s], s);
+    console.log(`   créés=${res.created} maj=${res.updated} ignorés=${res.skipped} problèmes=${res.problems.length}`);
+    res.problems.slice(0, 10).forEach((p) => console.log("   !", p));
+    totalC += res.created; totalU += res.updated; totalS += res.skipped; totalP += res.problems.length;
+  }
+
+  console.log("✅ Terminé.");
+  console.log(`Totaux: créés=${totalC}, maj=${totalU}, ignorés=${totalS}, problèmes=${totalP}`);
 }
 
 main()
-  .catch((e) => { console.error("❌ Import error:", e); process.exit(1); })
+  .catch((e) => { console.error("❌ Erreur import:", e); process.exit(1); })
   .finally(() => prisma.$disconnect());

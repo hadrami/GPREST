@@ -91,15 +91,14 @@ b.addCase(bootstrapAuth.pending, (s) => {
       s.requiresPasswordChange = false;
       localStorage.removeItem("token"); 
     })
-     .addCase(changePassword.pending,   (s)=>{ s.status="loading"; s.error=null; })
-     .addCase(changePassword.fulfilled, (s,a)=> {
-        s.status="succeeded";
-        s.token = a.payload.token;
-        s.requiresPasswordChange = false;
-        localStorage.setItem("token", s.token);
-     })
-     .addCase(changePassword.rejected,  (s,a)=>{ s.status="failed"; s.error=a.payload; });
-     
+ .addCase(changePassword.pending,   (s)=>{ s.status="loading"; s.error=null; })
+.addCase(changePassword.fulfilled, (s,a)=> {
+  s.status = "succeeded";
+  s.token  = a.payload.token;          // backend returns { ok:true, token }
+  s.requiresPasswordChange = false;
+  localStorage.setItem("token", s.token);
+})
+.addCase(changePassword.rejected,  (s,a)=>{ s.status="failed"; s.error=a.payload || "Password change failed"; })
   },
 });
 

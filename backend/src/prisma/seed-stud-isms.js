@@ -1,155 +1,93 @@
-// backend/src/prisma/seed-stud-esp.js
 // Usage:
-//   node src/prisma/seed-stud-esp.js /path/to/esp-students.xlsx
-//   node src/prisma/seed-stud-esp.js /path/to/esp-students.xlsx cmfe3psxw0003cpr035aoqete
+// node seed-stud-isms.mjs ./List_ISMS_2025.xlsx cmfe3psxl0001cpr0fi2fu5rt isms
 //
-// This version auto-detects the header row (looks for a cell "matricule" in the first 20 rows).
+// Args: [2]xlsxPath [3]establishmentId [4]acronym
+// Email will be `${matricule}@${acronym}` (default "isms")
 
 import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
-import fs from "fs";
-import * as XLSX from "xlsx";
-import { PrismaClient } from "@prisma/client";
+import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
+import * as path from "node:path";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, "../../.env") });
+// ---- XLSX import (ESM build) ----
+import * as XLSX from "xlsx/xlsx.mjs";
+XLSX.set_fs(fs); // important for readFile/writeFile in Node
+
+import { PrismaClient } from "@prisma/client";
+dotenv.config(); // uses DATABASE_URL
 
 const prisma = new PrismaClient();
-const DEFAULT_EST_ID = "hahahaahahaahaha";
 
-// ---------- helpers ----------
-function stripAccents(s) {
-  return s?.normalize("NFD").replace(/\p{Diacritic}+/gu, "") || "";
-}
-function normCell(v) {
-  return stripAccents(String(v ?? ""))
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/[^a-z0-9]/g, "");
-}
-function safeString(v) {
-  if (v == null) return "";
-  return String(v).trim();
-}
-function buildName(prenom, nom) {
-  const p = safeString(prenom);
-  const n = safeString(nom);
-  return (p && n) ? `${p} ${n}`.trim() : (p || n || "").trim();
-}
+const [,, XLSX_PATH = "./List_ISMS_2025.xlsx",
+       EST_ID = "cmfe3psxl0001cpr0fi2fu5rt",
+       ACRONYM_IN = "isms"] = process.argv;
+const ACRONYM = String(ACRONYM_IN).toLowerCase();
 
-function detectHeaderRow(rows2D, lookFor = "matricule", maxScan = 20) {
-  const target = normCell(lookFor);
-  const limit = Math.min(rows2D.length, maxScan);
-  for (let r = 0; r < limit; r++) {
-    const row = rows2D[r] || [];
-    for (let c = 0; c < row.length; c++) {
-      if (normCell(row[c]) === target) {
-        return r; // header row index
-      }
-    }
+const clean = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+const deaccentLower = (s) =>
+  clean(s).normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+const toStringKeep = (v) => (v == null ? "" : String(v).trim());
+
+const titleCase = (s) =>
+  clean(s).toLowerCase().replace(/\b\p{L}+/gu, (w) => w[0].toUpperCase() + w.slice(1));
+
+const mergeName = (prenom, nom) => {
+  const P = titleCase(prenom);
+  const N = titleCase(nom);
+  return clean([P, N].filter(Boolean).join(" "));
+};
+
+const yearFromSheetName = (n) => {
+  const u = String(n || "").toUpperCase();
+  if (/\bL2\b/.test(u)) return 2;
+  if (/\bL3\b/.test(u)) return 3;
+  return null;
+};
+
+function pickIndex(headers, ...cands) {
+  const H = headers.map(deaccentLower);
+  const C = cands.map(deaccentLower);
+  for (const c of C) {
+    const i = H.findIndex((h) => h === c || h.includes(c));
+    if (i !== -1) return i;
   }
   return -1;
 }
 
-function findColumnIndex(headerRow, ...candidates) {
-  // candidates are possible header names: e.g. "prenom", "prénom", "first name"...
-  const headerNorm = headerRow.map(normCell);
-  for (const candidate of candidates) {
-    const idx = headerNorm.indexOf(normCell(candidate));
-    if (idx !== -1) return idx;
-  }
-  return -1;
-}
-
-// ---------- main ----------
-async function main() {
-  const xlsxPathArg = process.argv[2];
-  const establishmentId = process.argv[3] || DEFAULT_EST_ID;
-
-  if (!xlsxPathArg) {
-    console.error("Usage: node src/prisma/seed-stud-esp.js <file.xlsx> [establishmentId]");
-    process.exit(1);
+async function importSheet(ws, sheetName) {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  if (!rows.length) {
+    return { created: 0, updated: 0, skipped: 0, problems: [`${sheetName}: feuille vide`] };
   }
 
-  const xlsxPath = path.isAbsolute(xlsxPathArg)
-    ? xlsxPathArg
-    : path.resolve(process.cwd(), xlsxPathArg);
+  const headers = rows[0].map(String);
+  const iMat    = pickIndex(headers, "matricule", "mat");
+  const iNom    = pickIndex(headers, "nom", "last name", "lastname", "name");
+  const iPrenom = pickIndex(headers, "prenom", "prénom", "first name", "firstname");
 
-  console.log("🔎 Lecture:", xlsxPath);
+  if (iMat === -1)   return { created:0, updated:0, skipped:rows.length, problems:[`${sheetName}: colonne 'matricule' introuvable`] };
+  if (iNom === -1 || iPrenom === -1)
+    return { created:0, updated:0, skipped:rows.length, problems:[`${sheetName}: colonnes 'nom' et/ou 'prenom' introuvables`] };
 
-  const buf = fs.readFileSync(xlsxPath);
-  const wb = XLSX.read(buf, { type: "buffer", cellDates: false });
-  const sheetName = wb.SheetNames[0];
-  const ws = wb.Sheets[sheetName];
-
-  // Read as 2D array; defval to keep empty cells
-  const rows2D = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-  if (!rows2D.length) {
-    console.error("❌ Feuille vide ou non lisible");
-    process.exit(1);
+  const studentYear = yearFromSheetName(sheetName);
+  if (!studentYear) {
+    return { created:0, updated:0, skipped:rows.length, problems:[`${sheetName}: année non détectée (attendu L2/L3)`] };
   }
 
-  // 1) Auto-detect header row by finding a cell "matricule"
-  const headerRowIndex = detectHeaderRow(rows2D, "matricule", 20);
-  if (headerRowIndex === -1) {
-    console.error("❌ Impossible de trouver la ligne d'entêtes (pas de cellule 'matricule' dans les 20 premières lignes).");
-    console.error("Astuce: mettez 'matricule' exact dans une cellule d'entête de colonne, ou modifiez le script pour la valeur recherchée.");
-    process.exit(1);
-  }
-
-  const header = rows2D[headerRowIndex];
-  const dataRows = rows2D.slice(headerRowIndex + 1);
-
-  // 2) Map columns
-  // You said: matricule is the *third* column from the left.
-  // We still try to *find* it by header text, but we also accept the "3rd column" as fallback.
-  let colMat = findColumnIndex(header, "matricule");
-  if (colMat === -1) {
-    // Fallback: third column (index 2)
-    colMat = 2;
-  }
-
-  // Try to find usual headers for prenom & nom (we keep robust list)
-  let colPrenom = findColumnIndex(
-    header,
-    "prenom", "prénom", "first name", "prenomdel'etudiant", "prenometudiant", "prenom_eleve", "givenname"
-  );
-  let colNom = findColumnIndex(
-    header,
-    "nom", "nomdefamille", "last name", "nometudiant", "nom_eleve", "surname"
-  );
-
-  // If not found, try common French headers with spaces/accents removed are already handled by normCell()
-  // Still, leave -1 if not found; we'll cope.
-
-  console.log("🧭 Header détecté à la ligne (1-based):", headerRowIndex + 1);
-  console.log("   Colonnes détectées -> matricule:", colMat, "| prenom:", colPrenom, "| nom:", colNom);
-
-  let created = 0, updated = 0;
+  let created = 0, updated = 0, skipped = 0;
   const problems = [];
 
-  for (let i = 0; i < dataRows.length; i++) {
-    const r = dataRows[i];
-    const rowIndex1 = headerRowIndex + 2 + i; // 1-based index for display
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const matricule = toStringKeep(row[iMat]);
+    const nom       = clean(row[iNom]);
+    const prenom    = clean(row[iPrenom]);
 
-    const matriculeRaw = r[colMat];
-    const prenomRaw = colPrenom >= 0 ? r[colPrenom] : "";
-    const nomRaw = colNom >= 0 ? r[colNom] : "";
+    if (!matricule) { skipped++; continue; }
 
-    const matricule = safeString(matriculeRaw);
-    if (!matricule) {
-      problems.push({ row: rowIndex1, reason: "Matricule manquant" });
-      continue;
-    }
-
-    const name = buildName(prenomRaw, nomRaw);
-    if (!name) {
-      problems.push({ row: rowIndex1, matricule, reason: "Nom/Prénom manquant(s)" });
-      continue;
-    }
-
-    const email = `${matricule}@esp.mr`;
+    const name  = mergeName(prenom, nom) || matricule;
+    const email = `${matricule}@${ACRONYM}`;
 
     try {
       const existing = await prisma.person.findUnique({
@@ -157,46 +95,66 @@ async function main() {
         select: { id: true },
       });
 
-      if (!existing) {
-        await prisma.person.create({
-          data: {
-            matricule,
-            name,
-            email,
-            establishmentId,
-            type: "STUDENT",
-          },
-        });
-        created++;
-      } else {
+      if (existing) {
         await prisma.person.update({
           where: { matricule },
           data: {
             name,
             email,
-            establishmentId,
+            establishmentId: EST_ID,
             type: "STUDENT",
+            studentYear, // <-- adjust if your column is named differently
           },
         });
         updated++;
+      } else {
+        await prisma.person.create({
+          data: {
+            matricule,
+            name,
+            email,
+            establishmentId: EST_ID,
+            type: "STUDENT",
+            studentYear, // <-- adjust if needed
+          },
+        });
+        created++;
       }
     } catch (e) {
-      problems.push({ row: rowIndex1, matricule, reason: e.message });
+      problems.push(`Ligne ${r + 1}: ${e?.message || e}`);
     }
   }
 
-  console.log("✅ Import ESP terminé.");
-  console.log("Créés:", created, "— Mis à jour:", updated, "— Problèmes:", problems.length);
-  if (problems.length) {
-    console.table(problems.slice(0, 10));
-    if (problems.length > 10) {
-      console.log(`… +${problems.length - 10} autres problèmes`);
-    }
+  return { created, updated, skipped, problems };
+}
+
+async function main() {
+  try { await fsp.access(XLSX_PATH); }
+  catch { console.error(`❌ Fichier introuvable: ${XLSX_PATH}`); process.exit(1); }
+
+  console.log(`📄 Lecture: ${path.basename(XLSX_PATH)} (ISMS)`);
+  const wb = XLSX.readFile(XLSX_PATH);
+
+  // Only L2 and L3 for ISMS
+  const sheets = wb.SheetNames.filter((n) => /^L[23]$/i.test(n));
+  if (!sheets.length) {
+    console.log(`⚠️ Aucune feuille L2/L3 trouvée. Feuilles: ${wb.SheetNames.join(", ")}`);
   }
+
+  let totalC = 0, totalU = 0, totalS = 0, totalP = 0;
+
+  for (const s of sheets) {
+    console.log(`→ Import ${s} (year ${yearFromSheetName(s)})`);
+    const res = await importSheet(wb.Sheets[s], s);
+    console.log(`   créés=${res.created} maj=${res.updated} ignorés=${res.skipped} problèmes=${res.problems.length}`);
+    res.problems.slice(0, 10).forEach((p) => console.log("   !", p));
+    totalC += res.created; totalU += res.updated; totalS += res.skipped; totalP += res.problems.length;
+  }
+
+  console.log("✅ Terminé.");
+  console.log(`Totaux: créés=${totalC}, maj=${totalU}, ignorés=${totalS}, problèmes=${totalP}`);
 }
 
 main()
-  .catch((e) => { console.error("❌ Import error:", e); process.exit(1); })
+  .catch((e) => { console.error("❌ Erreur import:", e); process.exit(1); })
   .finally(() => prisma.$disconnect());
-
-
