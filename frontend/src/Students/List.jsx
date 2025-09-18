@@ -39,6 +39,8 @@ export default function PersonsList() {
   const managerEstId =
     user?.establishmentId || user?.etablissementId || user?.establishment?.id || "";
 
+    console.log("User role:", roleUC, "isManager:", isManager, "managerEstId:", managerEstId);
+
   // Manager establishment metadata for title
   const [managerEstName, setManagerEstName] = useState(null);
 

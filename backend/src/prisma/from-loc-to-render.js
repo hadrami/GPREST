@@ -6,7 +6,7 @@
 //   npx prisma generate
 //
 // Env (put in backend/.env.merge or export inline):
-//   LOCAL_URL="postgresql://postgres:postgres@127.0.0.1:5432/gprest"
+//   LOCAL_URL="postgresql://prktkyykykukuuk"
 //   RENDER_URL="postgresql://<user>:<pass>@<host>:<port>/<db>?sslmode=require"
 //
 // Run:
