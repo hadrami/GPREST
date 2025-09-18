@@ -1,22 +1,4 @@
-// Merge all tables from LOCAL → RENDER without overwriting existing rows.
-// Models: Establishment, Person, User, MealPlan, MealConsumption
-//
-// Requirements:
-//   npm i @prisma/client
-//   npx prisma generate
-//
-// Env (put in backend/.env.merge or export inline):
-//   LOCAL_URL="postgresql://prktkyykykukuuk"
-//   RENDER_URL="postgresql://<user>:<pass>@<host>:<port>/<db>?sslmode=require"
-//
-// Run:
-//   export $(grep -v '^#' backend/.env.merge | xargs)   # or export LOCAL_URL=...; export RENDER_URL=...
-//   node backend/src/prisma/merge-local-to-render.mjs
-//
-// Notes:
-// - Requires your Prisma schema on Render to match local (run `npx prisma db push` to Render if needed).
-// - `skipDuplicates:true` relies on your PKs/uniques (id, username, email, etc) to avoid overwrites.
-// - Safe to re-run any time: already-present rows are skipped.
+
 
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
