@@ -170,6 +170,7 @@ export default function MealPlansList() {
   const [estabsLoading, setEstabsLoading] = useState(true);
   const [managerEstName, setManagerEstName] = useState(null);
 
+
   // mobile filters
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -188,11 +189,12 @@ async function fetchAllEstablishments() {
     page++;
   }
   // sort by name for stable UI
-  return all.map(x => ({ id: x.id, name: x.name || "—" }))
-            .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const arr = Array.isArray(all) ? all : [];
+return arr
+  .map(x => ({ id: x?.id, name: typeof x?.name === "string" ? x.name : String(x?.name ?? "—") }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+
 }
-
-
   // ---- Establishments list
  useEffect(() => {
    const run = async () => {

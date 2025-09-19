@@ -163,11 +163,10 @@ async function fetchAllEstablishments() {
     if (all.length >= total || items.length < pageSize) break;
     page++;
   }
-  // sort by name for stable UI
-  return all.map(x => ({ id: x.id, name: x.name || "—" }))
-            .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-}
-
+const arr = Array.isArray(all) ? all : [];
+return arr
+  .map(x => ({ id: x?.id, name: typeof x?.name === "string" ? x.name : String(x?.name ?? "—") }))
+  .sort((a, b) => a.name.localeCompare(b.name));
 
   // ---- Establishments list
  useEffect(() => {
