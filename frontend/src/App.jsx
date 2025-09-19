@@ -64,14 +64,16 @@ export default function App() {
 
         {/* force password change if you use it */}
         <Route
-          path="/force-password-change"
-          element={
-            <ProtectedRoute allowedRoles={["ADMIN", "SCAN_AGENT", "MANAGER"]}>
-              <ForcePasswordChange />
-            </ProtectedRoute>
-          }
-        />
+   path="/force-password-change"
+   element={
+     <ProtectedRoute>
+       <ForcePasswordChange />
+     </ProtectedRoute>
+   }
+ />
       </Route>
+
+
 
       {/* App layout */}
       <Route
