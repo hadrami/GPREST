@@ -65,6 +65,21 @@ await fastify.register(async function (instance) {
   await instance.register(scanRoutes, { prefix: "/api/scan" });
 });
 
+
++// Self-service mealplan routes — STUDENT or STAFF only
+await fastify.register(async function (instance) {
+  instance.addHook("preHandler", instance.auth);
+  instance.addHook("preHandler", async (req, reply) => {
+    const role = String(req.user?.role || "").toUpperCase();
+    if (role !== "STUDENT" && role !== "STAFF") {
+      return reply.code(403).send({ message: "Forbidden" });
+    }
+  });
+  const selfRoutes = (await import("./src/routes/mealplans.self.js")).default;
+  await instance.register(selfRoutes, { prefix: "/api/mealplans" }); // defines /self
+});
+
+
 // Feature routes — ADMIN (full) or MANAGER (scoped)
 await fastify.register(async function (instance) {
   instance.addHook("preHandler", instance.auth);
