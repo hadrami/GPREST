@@ -8,6 +8,8 @@ import AuthLayout from "./layouts/AuthLayout.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 
 // Pages
+import SelfMealPlan from "./pages/SelfMealPlan.jsx";
+
 import MealPlansList from "./pages/mealplans/MealPlansList.jsx";
 import Summary from "./Reports/Summary.jsx";
 import StudentsList from "./Students/List.jsx";
@@ -24,9 +26,12 @@ import ProtectedRoute, { GuestOnly } from "./components/ProtectedRoute.jsx";
 export default function App() {
   const { token, user } = useSelector((s) => s.auth);
 
-  const homeFor = (role) =>
-    String(role || "").toUpperCase() === "SCAN_AGENT" ? "/scan" : "/dashboard";
-
+    const homeFor = (role) => {
+    const r = String(role || "").toUpperCase();
+    if (r === "SCAN_AGENT") return "/scan";
+    if (r === "STUDENT" || r === "STAFF") return "/my-plan";
+    return "/dashboard";
+  };
   return (
     <Routes>
       {/* Landing redirect */}
@@ -38,6 +43,16 @@ export default function App() {
           ) : (
             <Navigate to="/login" replace />
           )
+        }
+      />
+
+      {/* Self-service page for STUDENT/STAFF ONLY (no dashboard chrome) */}
+      <Route
+        path="/my-plan"
+        element={
+          <ProtectedRoute allowedRoles={["STUDENT", "STAFF"]}>
+            <SelfMealPlan />
+          </ProtectedRoute>
         }
       />
 

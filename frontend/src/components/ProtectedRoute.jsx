@@ -41,10 +41,14 @@ export default function ProtectedRoute({
       const ok = whiteList.includes(roleUC);
 
       if (!ok) {
-        const fallback =
+           const fallback =
           fallbackForForbidden ??
-          (roleUC === "SCAN_AGENT" ? "/scan" : "/dashboard");
-        if (loc.pathname !== fallback) return <Navigate to={fallback} replace />;
+          (roleUC === "SCAN_AGENT"
+            ? "/scan"
+            : (roleUC === "STUDENT" || roleUC === "STAFF")
+              ? "/my-plan"
+              : "/dashboard");
+              if (loc.pathname !== fallback) return <Navigate to={fallback} replace />;
       }
     }
   }
@@ -56,8 +60,10 @@ export function GuestOnly({ children }) {
   const { token, user } = useSelector((s) => s.auth);
   if (token) {
     const roleUC = String(user?.role || "").toUpperCase();
-    const target = roleUC === "SCAN_AGENT" ? "/scan" : "/dashboard";
-    return <Navigate to={target} replace />;
+ const target =
+     roleUC === "SCAN_AGENT" ? "/scan" :
+      roleUC === "STUDENT" || roleUC === "STAFF" ? "/my-plan" :
+      "/dashboard";    return <Navigate to={target} replace />;
   }
   return children;
 }
