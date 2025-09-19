@@ -26,12 +26,15 @@ import ProtectedRoute, { GuestOnly } from "./components/ProtectedRoute.jsx";
 export default function App() {
   const { token, user } = useSelector((s) => s.auth);
 
-    const homeFor = (role) => {
-    const r = String(role || "").toUpperCase();
-    if (r === "SCAN_AGENT") return "/scan";
-    if (r === "STUDENT" || r === "STAFF") return "/my-plan";
-    return "/dashboard";
-  };
+  const homeFor = (role) => {
+  const r = String(role || "").toUpperCase();
+  if (r === "SCAN_AGENT") return "/scan";
+  if (r === "STUDENT" || r === "STAFF") return "/planifier";
+  return "/dashboard";
+};
+
+
+
   return (
     <Routes>
       {/* Landing redirect */}
@@ -46,15 +49,7 @@ export default function App() {
         }
       />
 
-      {/* Self-service page for STUDENT/STAFF ONLY (no dashboard chrome) */}
-      <Route
-        path="/my-plan"
-        element={
-          <ProtectedRoute allowedRoles={["STUDENT", "STAFF"]}>
-            <SelfMealPlan />
-          </ProtectedRoute>
-        }
-      />
+   
 
       {/* Public/auth layout */}
       <Route element={<AuthLayout />}>
@@ -81,11 +76,25 @@ export default function App() {
       {/* App layout */}
       <Route
         element={
-          <ProtectedRoute allowedRoles={["ADMIN", "MANAGER", "SCAN_AGENT"]}>
+          <ProtectedRoute allowedRoles={["ADMIN", "MANAGER", "SCAN_AGENT", "STUDENT", "STAFF"]}>
+ 
             <DashboardLayout />
           </ProtectedRoute>
         }
       >
+
+      +  {/* Planifier — only STUDENT & STAFF */}
+  <Route
+    path="/planifier"
+    element={
+      <ProtectedRoute allowedRoles={["STUDENT", "STAFF"]}>
+        <SelfMealPlan />
+      </ProtectedRoute>
+    }
+  />
+
+
+
         {/* Scan page: ADMIN + SCAN_AGENT only */}
         <Route
           path="/scan"

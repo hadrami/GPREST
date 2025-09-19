@@ -24,10 +24,12 @@ export default function ProtectedRoute({
   }
 
   if (requireAuth) {
+    // Not authenticated → go to login
     if (!isAuthed) {
       return <Navigate to="/login" state={{ from: loc }} replace />;
     }
 
+    // Force password change path if flagged
     if (requiresPasswordChange || user?.mustChangePassword) {
       if (loc.pathname !== "/force-password-change") {
         return <Navigate to="/force-password-change" replace />;
@@ -41,14 +43,18 @@ export default function ProtectedRoute({
       const ok = whiteList.includes(roleUC);
 
       if (!ok) {
-           const fallback =
+        // Choose a safe fallback that does NOT loop
+        const fallback =
           fallbackForForbidden ??
           (roleUC === "SCAN_AGENT"
             ? "/scan"
-            : (roleUC === "STUDENT" || roleUC === "STAFF")
-              ? "/my-plan"
+            : roleUC === "STUDENT" || roleUC === "STAFF"
+              ? "/planifier"
               : "/dashboard");
-              if (loc.pathname !== fallback) return <Navigate to={fallback} replace />;
+
+        if (loc.pathname !== fallback) {
+          return <Navigate to={fallback} replace />;
+        }
       }
     }
   }
@@ -60,10 +66,11 @@ export function GuestOnly({ children }) {
   const { token, user } = useSelector((s) => s.auth);
   if (token) {
     const roleUC = String(user?.role || "").toUpperCase();
- const target =
-     roleUC === "SCAN_AGENT" ? "/scan" :
-      roleUC === "STUDENT" || roleUC === "STAFF" ? "/my-plan" :
-      "/dashboard";    return <Navigate to={target} replace />;
+    const target =
+      roleUC === "SCAN_AGENT" ? "/scan" :
+      roleUC === "STUDENT" || roleUC === "STAFF" ? "/planifier" :
+      "/dashboard";
+    return <Navigate to={target} replace />;
   }
   return children;
 }

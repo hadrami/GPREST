@@ -1,106 +1,143 @@
-// src/pages/self/SelfMealPlan.jsx
+// src/pages/SelfMealPlan.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useSelector } from "react-redux";
-import { CheckCircle, AlertTriangle, MinusCircle } from "lucide-react";
-import api from "../lib/api"; // reuse your shared Axios instance
+import { CheckCircle, AlertTriangle, MinusCircle, CalendarDays, Loader2 } from "lucide-react";
+import api from "../lib/api"; // your shared Axios instance
 
-// Keep prices consistent with Prestations.jsx
+// Keep prices aligned with Prestations.jsx
 const RATES = {
-  student: { petitDej: 2,  dej: 5,  diner: 3  },
-  staff:   { petitDej: 15, dej: 50, diner: 25 },
+  student: { petitDej: 2, dej: 5, diner: 3 },
+  staff: { petitDej: 15, dej: 50, diner: 25 },
 };
 
 const MEALS = [
   { key: "petitDej", label: "Petit déj" },
-  { key: "dej",      label: "Déjeuner"  },
-  { key: "diner",    label: "Dîner"     },
+  { key: "dej", label: "Déjeuner" },
+  { key: "diner", label: "Dîner" },
 ];
 
-function ymd(d) {
-  const dt = new Date(d);
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, "0");
-  const day = String(dt.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-function addDays(d, n) {
+const fmtISO = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const addDays = (d, n) => {
   const t = new Date(d);
   t.setDate(t.getDate() + n);
   return t;
+};
+const lastDayOfMonth = (y, m0) => new Date(y, m0 + 1, 0).getDate();
+
+/** Two booking windows per month:
+ *  - 1..14
+ *  - 15..(end of month)
+ *  Editable until (start - 5 days). We pick the earliest *upcoming* window whose (start - 5) is still in the future.
+ */
+function computeUpcomingWindow(now = new Date()) {
+  const probe = new Date(now);
+  probe.setHours(0, 0, 0, 0);
+
+  for (let i = 0; i < 18; i++) {
+    const y = probe.getFullYear();
+    const m0 = probe.getMonth() + i; // may overflow; Date will normalize
+    const monthStart = new Date(y, m0, 1);
+    const firstStart = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
+    const firstEnd = new Date(monthStart.getFullYear(), monthStart.getMonth(), 14);
+    const secondStart = new Date(monthStart.getFullYear(), monthStart.getMonth(), 15);
+    const secondEnd = new Date(monthStart.getFullYear(), monthStart.getMonth(), lastDayOfMonth(firstStart.getFullYear(), firstStart.getMonth()));
+
+    const firstLock = addDays(firstStart, -5);
+    if (now < firstLock) return { start: firstStart, end: firstEnd };
+
+    const secondLock = addDays(secondStart, -5);
+    if (now < secondLock) return { start: secondStart, end: secondEnd };
+  }
+  // Fallback: next month first half
+  const nx = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return { start: nx, end: new Date(nx.getFullYear(), nx.getMonth(), 14) };
 }
 
 export default function SelfMealPlan() {
   const { user } = useSelector((s) => s.auth);
   const roleUC = String(user?.role || "").toUpperCase();
-  const kind = roleUC === "STAFF" ? "staff" : "student"; // choose rate table
+  const isStaff = roleUC === "STAFF";
+  const kind = isStaff ? "staff" : "student";
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   // server state
-  const [startDate, setStartDate] = useState(null); // Date
-  const [endDate, setEndDate]     = useState(null); // Date
-  const [choices, setChoices]     = useState({});   // { 'YYYY-MM-DD': { petitDej, dej, diner } }
-  const [status, setStatus]       = useState(null); // 'PENDING_PAYMENT' | 'PAID' | null
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
+  // choices: { 'YYYY-MM-DD': { petitDej, dej, diner } }
+  const [choices, setChoices] = useState({});
+  // server can send: 'PENDING_PAYMENT' | 'PAID' | null
+  const [status, setStatus] = useState(null);
 
-  // fetch on mount
+  // Fetch initial (window + any saved selections).
   useEffect(() => {
     let cancel = false;
     (async () => {
       setLoading(true);
       setError("");
       try {
-        // Expected backend payload:
-        // {
-        //   start: '2025-10-01', end: '2025-10-14',
-        //   choices: { '2025-10-01': { petitDej:true, dej:false, diner:false }, ... },
-        //   status: 'PENDING_PAYMENT'|'PAID'|null
-        // }
+        // Expected payload:
+        // { start:'YYYY-MM-DD', end:'YYYY-MM-DD', choices:{'YYYY-MM-DD':{...}}, status:'PENDING_PAYMENT'|'PAID'|null }
+        // If backend hasn’t implemented yet, we fallback to computed 1..14 / 15..end window.
         const { data } = await api.get("/mealplans/self");
         if (cancel) return;
 
-        const s = data?.start ? new Date(data.start) : new Date("2025-10-01T00:00:00");
-        const e = data?.end   ? new Date(data.end)   : new Date("2025-10-14T00:00:00");
-        setStartDate(s);
-        setEndDate(e);
+        if (data?.start && data?.end) {
+          setStartDate(new Date(`${data.start}T00:00:00`));
+          setEndDate(new Date(`${data.end}T00:00:00`));
+        } else {
+          const w = computeUpcomingWindow(new Date());
+          setStartDate(w.start);
+          setEndDate(w.end);
+        }
         setChoices(data?.choices || {});
         setStatus(data?.status ?? null);
-      } catch {/*e*/}
+      } catch {
+        // Fallback window if GET isn't available yet
+        const w = computeUpcomingWindow(new Date());
+        setStartDate(w.start);
+        setEndDate(w.end);
+      } finally {
+        if (!cancel) setLoading(false);
+      }
     })();
-    return () => { cancel = true; };
+    return () => {
+      cancel = true;
+    };
   }, []);
 
-  // days in the 15-day window
   const days = useMemo(() => {
     if (!startDate || !endDate) return [];
     const arr = [];
-    for (let d = new Date(startDate); d <= endDate; d = addDays(d, 1)) arr.push(ymd(d));
+    for (let d = new Date(startDate); d <= endDate; d = addDays(d, 1)) {
+      arr.push(fmtISO(d));
+    }
     return arr;
   }, [startDate, endDate]);
 
-  // lock edits when we're within 5 days before the start
+  // Lock when we’re within 5 days before the start.
   const locked = useMemo(() => {
     if (!startDate) return true;
-    const now = new Date();
     const lastEditable = addDays(startDate, -5);
-    return now >= lastEditable;
+    return new Date() >= lastEditable;
   }, [startDate]);
 
-  // live summary
   const summary = useMemo(() => {
     const r = RATES[kind];
-    let c = { petitDej: 0, dej: 0, diner: 0 };
+    const counts = { petitDej: 0, dej: 0, diner: 0 };
     for (const d of days) {
       const v = choices[d];
       if (!v) continue;
-      if (v.petitDej) c.petitDej++;
-      if (v.dej) c.dej++;
-      if (v.diner) c.diner++;
+      if (v.petitDej) counts.petitDej++;
+      if (v.dej) counts.dej++;
+      if (v.diner) counts.diner++;
     }
-    const total = c.petitDej * r.petitDej + c.dej * r.dej + c.diner * r.diner;
-    return { counts: c, total };
-  }, [days, choices, kind]);
+    const total = counts.petitDej * r.petitDej + counts.dej * r.dej + counts.diner * r.diner;
+    return { counts, total };
+  }, [choices, days, kind]);
 
   const toggle = (day, mealKey) => {
     if (locked) return;
@@ -115,139 +152,146 @@ export default function SelfMealPlan() {
     setError("");
     try {
       const payload = {
-        start: ymd(startDate),
-        end: ymd(endDate),
+        start: fmtISO(startDate),
+        end: fmtISO(endDate),
         choices,
       };
+      // Backend should persist + (for STAFF) mark status=PENDING_PAYMENT until admin confirms
       const { data } = await api.post("/mealplans/self", payload);
       if (data?.status) setStatus(data.status);
-    } catch {/*e*/}{
+    } catch {
       setError("Échec de l’enregistrement. Réessayez.");
-    }
+    } finally {
       setSaving(false);
-    
+    }
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Mes choix de repas (15 jours)</h1>
-        {status === "PAID" && (
-          <span className="inline-flex items-center gap-2 text-sm px-2 py-1 rounded bg-emerald-100 text-emerald-700">
-            <CheckCircle size={16} /> Payé
-          </span>
-        )}
-        {status === "PENDING_PAYMENT" && (
-          <span className="inline-flex items-center gap-2 text-sm px-2 py-1 rounded bg-red-100 text-red-700">
-            <AlertTriangle size={16} /> En attente de paiement
-          </span>
-        )}
+      <div className="flex items-center gap-3">
+        <CalendarDays className="h-6 w-6 text-primary" />
+        <h1 className="text-xl font-semibold">Planifier mes repas</h1>
       </div>
 
-      {/* Rules */}
-      <div className="rounded-lg border p-3 text-sm leading-6 bg-amber-50">
-        <p>
-          • Toute sélection entraîne paiement, et toute absence sur un repas sélectionné est également due.
-        </p>
-        <p>
-          • Vous pouvez modifier vos choix jusqu’à <strong>5 jours avant</strong> le début de la période.
-          Passé ce délai, les choix sont verrouillés.
-        </p>
-        <p>
-          • Pour le personnel (STAFF), après validation, le statut reste <strong>En attente de paiement</strong>
-          jusqu’à confirmation par l’administrateur.
-        </p>
+      {/* Window + rules */}
+      <div className="rounded border p-3 bg-white">
+        {startDate && endDate && (
+          <p className="text-sm">
+            Période affichée :{" "}
+            <b>
+              {fmtISO(startDate)} → {fmtISO(endDate)}
+            </b>
+            . Vous pouvez choisir vos repas pour cette période. Les choix sont
+            <b> verrouillés 5 jours avant le début</b> de la période.
+          </p>
+        )}
+        <ul className="mt-2 text-sm text-slate-600 list-disc pl-5 space-y-1">
+          <li>Vous devrez payer pour chaque repas choisi.</li>
+          <li>Un repas réservé mais non consommé reste dû.</li>
+        </ul>
       </div>
 
-      {/* Period banner */}
-      <div className="rounded-md bg-slate-50 border p-3 text-sm">
+      {/* Status / payment (for STAFF) */}
+      {isStaff && status === "PENDING_PAYMENT" && (
+        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700 flex items-start gap-2">
+          <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+          <div>
+            <div className="font-medium">En attente de paiement</div>
+            <div>Veuillez régler auprès de l’administration. Votre plan sera validé après confirmation.</div>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && <div className="rounded border p-3 bg-red-50 text-red-700 text-sm">{error}</div>}
+
+      {/* Grid of days */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {loading ? (
-          <span>Chargement…</span>
-        ) : startDate && endDate ? (
-          <span>
-            Période: <strong>{ymd(startDate)}</strong> → <strong>{ymd(endDate)}</strong>{" "}
-            {locked ? (
-              <span className="ml-2 text-red-600">(verrouillé)</span>
-            ) : (
-              <span className="ml-2 text-emerald-700">(modifiable)</span>
-            )}
-          </span>
+          <div className="col-span-full flex items-center gap-2 text-slate-600">
+            <Loader2 className="h-5 w-5 animate-spin" /> Chargement…
+          </div>
         ) : (
-          <span className="text-red-600">Période introuvable.</span>
-        )}
-      </div>
-
-      {/* Day cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {days.map((d) => {
-          const sel = choices[d] || { petitDej: false, dej: false, diner: false };
-          return (
-            <div key={d} className="rounded-xl border p-3">
-              <div className="font-medium mb-2">{d}</div>
-              <div className="flex gap-2">
-                {MEALS.map((m) => {
-                  const active = !!sel[m.key];
-                  return (
+          days.map((d) => {
+            const v = choices[d] || { petitDej: false, dej: false, diner: false };
+            const disabledCls = locked ? "opacity-50 pointer-events-none" : "";
+            return (
+              <div key={d} className="border rounded-md p-3 bg-white">
+                <div className="font-medium">{d}</div>
+                <div className={`mt-2 grid grid-cols-3 gap-2 ${disabledCls}`}>
+                  {MEALS.map((m) => (
                     <button
                       key={m.key}
-                      disabled={locked}
+                      type="button"
                       onClick={() => toggle(d, m.key)}
                       className={[
-                        "flex-1 rounded-lg px-3 py-2 text-sm border transition",
-                        active
-                          ? "bg-emerald-600 text-white border-emerald-600"
-                          : "bg-white hover:bg-slate-50",
-                        locked && "opacity-60 cursor-not-allowed",
+                        "px-2 py-2 rounded-md border text-sm",
+                        v[m.key] ? "bg-primary text-white border-primary" : "bg-white",
                       ].join(" ")}
-                      title={locked ? "Période verrouillée" : `Basculer ${m.label}`}
                     >
                       {m.label}
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
+                {locked && (
+                  <div className="mt-2 text-xs text-slate-500 flex items-center gap-1">
+                    <MinusCircle className="h-4 w-4" />
+                    Verrouillé (période imminente)
+                  </div>
+                )}
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
-      {/* Summary + Save */}
-      <div className="rounded-xl border p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="text-sm">
-          <div className="flex gap-4">
-            <span>Pt-déj: <strong>{summary.counts.petitDej}</strong></span>
-            <span>Déj: <strong>{summary.counts.dej}</strong></span>
-            <span>Dîner: <strong>{summary.counts.diner}</strong></span>
-          </div>
-          <div className="mt-1">
-            Montant total:{" "}
-            <strong>
-              {summary.total} MRU {kind === "staff" ? "(tarifs personnel)" : "(tarifs étudiant)"}
-            </strong>
+      {/* Summary + actions */}
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded border p-3 bg-white md:col-span-2">
+          <div className="font-medium mb-2">Récapitulatif</div>
+          <div className="text-sm text-slate-700 grid grid-cols-2 sm:grid-cols-4 gap-y-1">
+            <div>Petit déj : <b>{summary.counts.petitDej}</b></div>
+            <div>Déjeuner : <b>{summary.counts.dej}</b></div>
+            <div>Dîner : <b>{summary.counts.diner}</b></div>
+            <div className="sm:col-span-1 col-span-2">Total : <b>{summary.total}</b> MRU</div>
           </div>
         </div>
-
-        <div className="flex items-center gap-3">
-          {error && (
-            <span className="inline-flex items-center gap-1 text-red-600 text-sm">
-              <MinusCircle size={16} /> {error}
-            </span>
-          )}
+        <div className="rounded border p-3 bg-white flex items-center justify-end gap-2">
           <button
-            onClick={onSave}
-            disabled={locked || saving || loading}
-            className={[
-              "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium",
-              locked || saving || loading
-                ? "bg-slate-300 text-slate-600 cursor-not-allowed"
-                : "bg-emerald-600 text-white hover:bg-emerald-700",
-            ].join(" ")}
-            title={locked ? "Période verrouillée" : "Enregistrer mes choix"}
+            type="button"
+            onClick={() => {
+              if (locked) return;
+              setChoices({});
+            }}
+            className="px-3 py-2 rounded-md border"
+            disabled={locked || saving}
           >
-            {saving ? "Enregistrement…" : "Enregistrer"}
+            Réinitialiser
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            className="px-4 py-2 rounded-md bg-primary text-white disabled:opacity-50 flex items-center gap-2"
+            disabled={locked || saving}
+            title={locked ? "Verrouillé (moins de 5 jours avant le début)" : "Enregistrer mes choix"}
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            <CheckCircle className="h-4 w-4" />
+            Enregistrer
           </button>
         </div>
+      </div>
+
+      {/* Who am I (read-only) */}
+      <div className="rounded border p-3 bg-white text-sm text-slate-700">
+        <div>
+          Utilisateur : <b>{user?.name || "—"}</b>{" "}
+          <span className="text-slate-500">({String(user?.role || "").toUpperCase()})</span>
+        </div>
+        {user?.matricule && (
+          <div>Matricule : <b>{user.matricule}</b></div>
+        )}
       </div>
     </div>
   );

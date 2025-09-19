@@ -22,6 +22,9 @@ export default function DashboardLayout() {
   const isAdmin = roleUC === "ADMIN";
   const isManager = roleUC === "MANAGER";
   const isScanAgent = roleUC === "SCAN_AGENT";
+const isStudent = roleUC === "STUDENT";
+const isStaff   = roleUC === "STAFF";
+
 
 
   useEffect(() => {
@@ -164,6 +167,15 @@ export default function DashboardLayout() {
 />
 
         </nav>
+
+<NavItem
+  to="/planifier"
+  label="Planifier"
+  iconPath="M8 7V3m8 4V3M4 11h16M4 19h16M7 11v8m5-8v8m5-8v8"
+  canClick={isStudent || isStaff}
+  onNavigate={() => setOpen(false)}
+/>
+
 
         <div className="p-3 border-t border-primary/60">
           <button
