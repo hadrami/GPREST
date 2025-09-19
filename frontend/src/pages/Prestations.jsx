@@ -1,4 +1,3 @@
-// src/Reports/Prestations.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSelector } from "react-redux";
 import api from "../lib/api";
@@ -8,11 +7,11 @@ import "jspdf-autotable";
 import {
   apiListEstablishments,
   apiGetEstablishment,
-} from "../lib/establishments.api"; // unified establishments API (list + byId)
+} from "../lib/establishments.api";
 
 const RATES = {
-  student: { petitDej: 2,  dej: 5,  diner: 3  },   // MRU
-  staff:   { petitDej: 15, dej: 50, diner: 25 },   // MRU
+  student: { petitDej: 2,  dej: 5,  diner: 3  },
+  staff:   { petitDej: 15, dej: 50, diner: 25 },
 };
 
 const PAGE_SIZE = 20;
@@ -41,7 +40,6 @@ function moneyForRow(type, counts) {
 }
 
 export default function Prestations() {
-  // Auth / role
   const { user } = useSelector((s) => s.auth);
   const isManager = String(user?.role || "").toUpperCase() === "MANAGER";
   const managerEstId =
@@ -51,14 +49,14 @@ export default function Prestations() {
   const [search, setSearch] = useState("");
   const [from, setFrom]     = useState("");
   const [to, setTo]         = useState("");
-  const [estId, setEstId]   = useState(""); // establishment **id** (server-side)
+  const [estId, setEstId]   = useState(""); // establishment id (server-side)
   const [type, setType]     = useState(""); // "" | "student" | "staff"
 
   // Data & UI
   const [estabs, setEstabs] = useState([]);
   const [managerEstName, setManagerEstName] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState([]); // aggregated rows
+  const [rows, setRows] = useState([]);    // aggregated rows
   const [page, setPage] = useState(1);
 
   // Mobile filters
@@ -67,7 +65,7 @@ export default function Prestations() {
   // Debounce for auto-apply
   const debounceRef = useRef(null);
 
-  // ---- Establishments list (unified API) ----
+  // ---- Establishments list
   useEffect(() => {
     const run = async () => {
       try {
@@ -82,9 +80,9 @@ export default function Prestations() {
       }
     };
     run();
-  }, []); // list establishments once (same API as Summary/List) :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4}
+  }, []); // :contentReference[oaicite:6]{index=6}
 
-  // ---- Manager: lock establishment id + fetch display name ----
+  // ---- Manager: lock establishment id + fetch display name
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -98,25 +96,21 @@ export default function Prestations() {
       }
     })();
     return () => { cancel = true; };
-  }, [isManager, managerEstId]); // same pattern used in Summary/List for the name line :contentReference[oaicite:5]{index=5} :contentReference[oaicite:6]{index=6}
+  }, [isManager, managerEstId]); // :contentReference[oaicite:7]{index=7}
 
-  // ---- Fetch & aggregate meal plans -> per person counters ----
+  // ---- Fetch & aggregate meal plans -> per person counters
   const fetchMealPlans = async (params = {}, limit = PAGE_SIZE, offset = 0) => {
     const q = {
       search: params.search || "",
       from: params.from || "",
       to: params.to || "",
-      // Server supports establishmentId → pass id (or leave blank for all if ADMIN)
       establishmentId: isManager ? managerEstId : (params.establishmentId || ""),
-      type: params.type || "", // 'student'/'staff' → backend uppercases internally
+      type: params.type || "",
       limit,
       offset,
     };
-
     const { data: resp } = await api.get("/mealplans", { params: q });
-    // Note: feature routes are auth-protected & MANAGER is hard-scoped by server middleware as well. :contentReference[oaicite:7]{index=7}
 
-    // Accept both shapes: array OR { items, total, ... }
     if (Array.isArray(resp)) return { data: resp, total: resp.length };
     const { items = [], total = 0 } = resp || {};
     return { data: items, total };
@@ -125,7 +119,7 @@ export default function Prestations() {
   const aggregate = (items) => {
     const map = new Map();
     for (const it of items) {
-      if (it?.planned === false) continue; // planned only
+      if (it?.planned === false) continue;
 
       const person = it?.person || {};
       const key = person.matricule || `${person.nom ?? ""}-${person.prenom ?? ""}-${person.etablissement ?? ""}`;
@@ -134,7 +128,7 @@ export default function Prestations() {
           matricule: person.matricule || "",
           nom: person.nom || person.name || "",
           prenom: person.prenom || "",
-          etablissement: person.establissement || person.establishment?.name || "",
+          etablissement: person.establishment?.name || person.etablissement || "",
           type: (person.type || "").toLowerCase() === "staff" ? "staff" : "student",
           counts: { petitDej: 0, dej: 0, diner: 0 },
         });
@@ -162,19 +156,6 @@ export default function Prestations() {
       );
       const aggregated = aggregate(data);
 
-      // If establishments select is still empty, derive from results (kept)
-      if (estabs.length === 0 && Array.isArray(data)) {
-        const uniq = new Map();
-        for (const it of data) {
-          const nm = it?.person?.establishment?.name || it?.person?.etablissement || "";
-          if (nm && !uniq.has(nm)) uniq.set(nm, { id: nm, name: nm });
-        }
-        if (uniq.size > 0) {
-          const arr = Array.from(uniq.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-          setEstabs(arr);
-        }
-      }
-
       aggregated.sort(
         (a, b) =>
           (a.fullName || "").localeCompare(b.fullName || "") ||
@@ -190,12 +171,9 @@ export default function Prestations() {
   };
 
   // initial load
-  useEffect(() => {
-    runQuery();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { runQuery(); /* eslint-disable-next-line */ }, []);
 
-  // ---- Auto-apply: debounce whenever a filter changes ----
+  // auto-apply on filter changes
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => runQuery(), 300);
@@ -213,7 +191,6 @@ export default function Prestations() {
           (row.fullName || "").toLowerCase().includes(term)
       );
     }
-    // estId is applied server-side; type is also passed server-side → keep local filter for type just in case
     if (type) r = r.filter((x) => (x.type || "") === type);
     return r;
   }, [rows, search, type]);
@@ -243,7 +220,6 @@ export default function Prestations() {
     () => [{ id: "", name: "Tous les établissements" }, ...estabs],
     [estabs]
   );
-
   const currentEstName = useMemo(() => {
     if (isManager) return managerEstName || "…";
     const match = establishmentOptions.find((o) => String(o.id || "") === String(estId || ""));
@@ -258,22 +234,17 @@ export default function Prestations() {
       const filterLines = [
         from ? `De: ${from}` : null,
         to ? `À: ${to}` : null,
-        // Always state the establishment scope in the export, like Summary
         `Établissement: ${currentEstName || (isManager ? "…" : "Tous")}`,
-        type ? `Type: ${type === "staff" ? "Personnel" : type === "student" ? "Étudiant" : type}` : null,
+        type ? `Type: ${type === "staff" ? "Personnel" : "Étudiant"}` : null,
         search ? `Recherche: ${search}` : null,
-      ]
-        .filter(Boolean)
-        .join(" | ");
+      ].filter(Boolean).join(" | ");
 
       doc.setFontSize(16);
       doc.text(title, 14, 14);
       doc.setFontSize(10);
       if (filterLines) doc.text(filterLines, 14, 20);
 
-      const head = [
-        ["#", "Matricule", "Nom", "Établissement", "Type", "Petit dej", "Déj", "Dîner", "Total (MRU)"],
-      ];
+      const head = [["#", "Matricule", "Nom", "Établissement", "Type", "Petit dej", "Déj", "Dîner", "Total (MRU)"]];
       const body = filteredRows.map((r, i) => [
         i + 1,
         r.matricule || "",
@@ -288,12 +259,13 @@ export default function Prestations() {
 
       body.push(["", "", "TOTAL", "", "", grandTotals.petitDej, grandTotals.dej, grandTotals.diner, grandTotals.mru]);
 
+      // @ts-ignore
       doc.autoTable({
         head,
         body,
         startY: filterLines ? 26 : 20,
         styles: { fontSize: 9 },
-        headStyles: { fillColor: [16, 185, 129] }, // emerald
+        headStyles: { fillColor: [16, 185, 129] },
       });
 
       doc.save(`Prestations_${from || "start"}_${to || "end"}.pdf`);
@@ -303,7 +275,6 @@ export default function Prestations() {
     }
   };
 
-  // ---------------- UI ----------------
   return (
     <div className="p-4 space-y-4">
       {/* Title */}
@@ -319,45 +290,33 @@ export default function Prestations() {
         </button>
       </div>
 
-      {/* Subtitle: establishment scope (like Summary/List) */}
+      {/* Subtitle: establishment scope */}
       {isManager ? (
         <div className="text-sm text-slate-600">
           Résultats pour l’établissement :{" "}
           <span className="font-medium text-primary">
-            {managerEstName ?? "Chargement…"}
+            {currentEstName}
           </span>
         </div>
       ) : (
         <div className="text-sm text-slate-500">
-          {currentEstName || "Tous les établissements"}
+          {currentEstName}
         </div>
       )}
 
-      {/* Filters toolbar */}
-      <div className="flex items-center gap-2">
-        {/* Mobile open */}
-        <button
-          className="md:hidden inline-flex items-center gap-1 rounded-md border px-3 py-2 text-sm"
-          onClick={() => setShowFiltersMobile(true)}
-        >
-          <Filter size={16} />
-          Filtres
-        </button>
+      {/* --- MOBILE: search + dates always visible (NOT inside filter sheet) --- */}
+      <div className="md:hidden space-y-3">
+        <label className="flex items-center gap-2 border rounded px-2">
+          <Search size={16} className="text-slate-500" />
+          <input
+            className="px-1 py-2 outline-none w-full"
+            placeholder="Rechercher (matricule, nom…)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
 
-        {/* Desktop filters */}
-        <div className="hidden md:flex items-end gap-3 flex-wrap">
-          {/* Search */}
-          <label className="flex items-center gap-2 border rounded px-2">
-            <Search size={16} className="text-slate-500" />
-            <input
-              className="px-1 py-2 outline-none"
-              placeholder="Rechercher (matricule, nom…)"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </label>
-
-          {/* Dates */}
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-gray-600">Du</label>
             <input
@@ -376,40 +335,81 @@ export default function Prestations() {
               onChange={(e) => setTo(e.target.value)}
             />
           </div>
+        </div>
 
-          {/* Establishment — hidden for MANAGER */}
-          {!isManager && (
-            <div>
-              <label className="text-xs text-gray-600">Établissement</label>
-              <select
-                value={estId}
-                onChange={(e) => setEstId(e.target.value)}
-                className="w-full border rounded px-3 py-2 bg-white"
-              >
-                {establishmentOptions.map((o) => (
-                  <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Type */}
-          <div>
-            <label className="text-xs text-gray-600">Type</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="w-full border rounded px-3 py-2 bg-white"
-            >
-              <option value="">Tous</option>
-              <option value="student">Étudiant</option>
-              <option value="staff">Personnel</option>
-            </select>
-          </div>
+        <div className="flex items-center gap-2">
+          <button
+            className="inline-flex items-center gap-1 rounded-md border px-3 py-2 text-sm"
+            onClick={() => setShowFiltersMobile(true)}
+          >
+            <Filter size={16} />
+            Filtres
+          </button>
         </div>
       </div>
 
-      {/* Mobile sheet */}
+      {/* --- DESKTOP toolbar --- */}
+      <div className="hidden md:flex items-end gap-3 flex-wrap">
+        <label className="flex items-center gap-2 border rounded px-2">
+          <Search size={16} className="text-slate-500" />
+          <input
+            className="px-1 py-2 outline-none"
+            placeholder="Rechercher (matricule, nom…)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
+
+        <div>
+          <label className="text-xs text-gray-600">Du</label>
+          <input
+            type="date"
+            className="w-full border rounded px-3 py-2"
+            value={formatDateInput(from)}
+            onChange={(e) => setFrom(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-gray-600">Au</label>
+          <input
+            type="date"
+            className="w-full border rounded px-3 py-2"
+            value={formatDateInput(to)}
+            onChange={(e) => setTo(e.target.value)}
+          />
+        </div>
+
+        {/* Establishment — hidden for MANAGER */}
+        {!isManager && (
+          <div>
+            <label className="text-xs text-gray-600">Établissement</label>
+            <select
+              value={estId}
+              onChange={(e) => setEstId(e.target.value)}
+              className="w-full border rounded px-3 py-2 bg-white"
+            >
+              {establishmentOptions.map((o) => (
+                <option key={o.id || "all"} value={o.id || ""}>{o.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label className="text-xs text-gray-600">Type</label>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="w-full border rounded px-3 py-2 bg-white"
+          >
+            <option value="">Tous</option>
+            <option value="student">Étudiant</option>
+            <option value="staff">Personnel</option>
+          </select>
+        </div>
+      </div>
+
+      {/* --- MOBILE sheet (NO search/dates here, per your request) --- */}
       {showFiltersMobile && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowFiltersMobile(false)} />
@@ -423,43 +423,7 @@ export default function Prestations() {
             </div>
 
             <div className="space-y-3">
-              {/* Search */}
-              <div>
-                <label className="text-xs text-gray-600">Recherche</label>
-                <div className="flex items-center gap-2 border rounded px-2">
-                  <Search size={16} className="text-slate-500" />
-                  <input
-                    className="px-1 py-2 outline-none w-full"
-                    placeholder="Matricule, nom…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Dates */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-600">Du</label>
-                  <input
-                    type="date"
-                    className="w-full border rounded px-3 py-2"
-                    value={formatDateInput(from)}
-                    onChange={(e) => setFrom(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-600">Au</label>
-                  <input
-                    type="date"
-                    className="w-full border rounded px-3 py-2"
-                    value={formatDateInput(to)}
-                    onChange={(e) => setTo(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Établissement — hidden for MANAGER */}
+              {/* Établissement — HIDDEN for MANAGER on mobile */}
               {!isManager && (
                 <div>
                   <label className="text-xs text-gray-600">Établissement</label>
@@ -475,7 +439,6 @@ export default function Prestations() {
                 </div>
               )}
 
-              {/* Type */}
               <div>
                 <label className="text-xs text-gray-600">Type</label>
                 <select
@@ -502,63 +465,70 @@ export default function Prestations() {
         </div>
       )}
 
-      {/* Table */}
-      <div className="overflow-x-auto border rounded">
-        <table className="min-w-[900px] w-full text-sm">
+      {/* --- DATA TABLE (unchanged styling) --- */}
+      <div className="overflow-x-auto rounded-xl border">
+        <table className="min-w-full text-sm">
           <thead className="bg-slate-50">
-            <tr>
-              <th className="text-left p-2">#</th>
-              <th className="text-left p-2">Matricule</th>
-              <th className="text-left p-2">Nom</th>
-              <th className="text-left p-2">Établissement</th>
-              <th className="text-left p-2">Type</th>
-              <th className="text-right p-2">Petit déj</th>
-              <th className="text-right p-2">Déj</th>
-              <th className="text-right p-2">Dîner</th>
-              <th className="text-right p-2">Total (MRU)</th>
+            <tr className="text-left">
+              <th className="px-4 py-2">#</th>
+              <th className="px-4 py-2">Matricule</th>
+              <th className="px-4 py-2">Nom</th>
+              <th className="px-4 py-2">Établissement</th>
+              <th className="px-4 py-2">Type</th>
+              <th className="px-4 py-2">Pt-déj</th>
+              <th className="px-4 py-2">Déj</th>
+              <th className="px-4 py-2">Dîner</th>
+              <th className="px-4 py-2">Total (MRU)</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td className="p-3 text-slate-500" colSpan={9}>Chargement…</td></tr>
+              <tr><td className="px-4 py-6 text-slate-500" colSpan={9}>Chargement…</td></tr>
             ) : pageRows.length === 0 ? (
-              <tr><td className="p-3 text-slate-500" colSpan={9}>Aucun résultat</td></tr>
+              <tr><td className="px-4 py-6 text-slate-500" colSpan={9}>Aucun résultat</td></tr>
             ) : (
               pageRows.map((r, i) => (
                 <tr key={`${r.matricule}-${i}`} className="border-t">
-                  <td className="p-2">{(page - 1) * PAGE_SIZE + i + 1}</td>
-                  <td className="p-2">{r.matricule || "—"}</td>
-                  <td className="p-2">{r.fullName || "—"}</td>
-                  <td className="p-2">{r.etablissement || "—"}</td>
-                  <td className="p-2">{r.type === "staff" ? "Personnel" : "Étudiant"}</td>
-                  <td className="p-2 text-right">{r.counts.petitDej}</td>
-                  <td className="p-2 text-right">{r.counts.dej}</td>
-                  <td className="p-2 text-right">{r.counts.diner}</td>
-                  <td className="p-2 text-right">{r.total}</td>
+                  <td className="px-4 py-2">{(page - 1) * PAGE_SIZE + i + 1}</td>
+                  <td className="px-4 py-2">{r.matricule}</td>
+                  <td className="px-4 py-2">{r.fullName}</td>
+                  <td className="px-4 py-2">{r.etablissement}</td>
+                  <td className="px-4 py-2">{r.type === "staff" ? "Personnel" : "Étudiant"}</td>
+                  <td className="px-4 py-2">{r.counts.petitDej}</td>
+                  <td className="px-4 py-2">{r.counts.dej}</td>
+                  <td className="px-4 py-2">{r.counts.diner}</td>
+                  <td className="px-4 py-2">{r.total}</td>
                 </tr>
               ))
             )}
           </tbody>
+          <tfoot className="bg-slate-50">
+            <tr>
+              <td className="px-4 py-2 font-medium" colSpan={5}>Totaux</td>
+              <td className="px-4 py-2 font-medium">{grandTotals.petitDej}</td>
+              <td className="px-4 py-2 font-medium">{grandTotals.dej}</td>
+              <td className="px-4 py-2 font-medium">{grandTotals.diner}</td>
+              <td className="px-4 py-2 font-medium">{grandTotals.mru}</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
 
       {/* Pagination */}
       <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-500">
-          Page {page} / {totalPages}
-        </div>
+        <div className="text-sm text-slate-600">Page {page} / {totalPages}</div>
         <div className="flex items-center gap-2">
           <button
-            className="px-3 py-1 border rounded disabled:opacity-50"
-            disabled={page <= 1}
+            className="px-3 py-1 rounded border disabled:opacity-50"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
           >
             Précédent
           </button>
           <button
-            className="px-3 py-1 border rounded disabled:opacity-50"
-            disabled={page >= totalPages}
+            className="px-3 py-1 rounded border disabled:opacity-50"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
           >
             Suivant
           </button>

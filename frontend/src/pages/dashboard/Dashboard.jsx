@@ -1,10 +1,9 @@
-// src/pages/dashboard/Dashboard.jsx
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import dayjs from "dayjs";
 import { byDay } from "../../lib/reports.api";
+import { useSelector } from "react-redux";
 
-// Petite carte stat non cliquable (on supprime les liens individuels)
+// Small non-clickable stat card (keeps your current look)
 function StatCard({ title, value, accent = "from-emerald-500 to-teal-500" }) {
   return (
     <div className="group block rounded-2xl overflow-hidden shadow-sm ring-1 ring-slate-200 bg-white">
@@ -18,21 +17,27 @@ function StatCard({ title, value, accent = "from-emerald-500 to-teal-500" }) {
 }
 
 export default function Dashboard() {
+  const { user } = useSelector((s) => s.auth);
+  const roleUC = String(user?.role || "").toUpperCase();
+  const isManager = roleUC === "MANAGER";
+  const managerEstablishmentId =
+    user?.establishmentId || user?.etablissementId || user?.establishment?.id || "";
+
   const today = dayjs().format("YYYY-MM-DD");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
-  // Stats aujourd’hui
-  const [planned, setPlanned]   = useState(0);
-  const [eaten, setEaten]       = useState(0);
-  const [noShow, setNoShow]     = useState(0);
+  // Today
+  const [planned, setPlanned] = useState(0);
+  const [eaten, setEaten] = useState(0);
+  const [noShow, setNoShow] = useState(0);
 
-  // Stats 15 jours
+  // Last 15 days (rolling)
   const [planned15, setPlanned15] = useState(0);
-  const [eaten15, setEaten15]     = useState(0);
-  const [noShow15, setNoShow15]   = useState(0);
-  const start15 = dayjs(today).subtract(14, "day"); // 15 jours glissants (inclus)
-  const end15   = dayjs(today);
+  const [eaten15, setEaten15] = useState(0);
+  const [noShow15, setNoShow15] = useState(0);
+  const start15 = dayjs(today).subtract(14, "day");
+  const end15 = dayjs(today);
 
   useEffect(() => {
     (async () => {
@@ -40,89 +45,71 @@ export default function Dashboard() {
         setLoading(true);
         setErr(null);
 
-        // --- Aujourd’hui
-        const { data: d0 } = await byDay({ date: today });
-        setPlanned(d0?.planned ?? 0);
-        setEaten(d0?.eaten ?? 0);
-        setNoShow(d0?.noShow ?? 0);
+        const baseParams = {
+          establishmentId: isManager ? managerEstablishmentId : undefined,
+        };
 
-        // --- 15 derniers jours (simple agrégat en 15 appels; à remplacer par un endpoint dédié si dispo)
-        const dates = Array.from({ length: 15 }, (_, i) =>
-          dayjs(today).subtract(i, "day").format("YYYY-MM-DD")
-        );
+        // --- Today
+        const t = await byDay({ ...baseParams, date: today });
+        const p = Number(t?.data?.planned ?? 0);
+        const e = Number(t?.data?.eaten ?? 0);
+        setPlanned(p);
+        setEaten(e);
+        setNoShow(Math.max(0, p - e));
 
-        const results = await Promise.allSettled(
-          dates.map((dt) => byDay({ date: dt }))
-        );
-
-        let p = 0, e = 0, n = 0;
-        for (const r of results) {
-          if (r.status === "fulfilled") {
-            const v = r.value?.data || {};
-            p += Number(v.planned || 0);
-            e += Number(v.eaten || 0);
-            n += Number(v.noShow || 0);
-          }
+        // --- 15-day rolling window
+        let p15 = 0, e15 = 0;
+        let d = start15;
+        while (d.isSame(end15, "day") || d.isBefore(end15)) {
+          const dateStr = d.format("YYYY-MM-DD");
+          // Accumulate per-day totals to avoid changing your API
+          const r = await byDay({ ...baseParams, date: dateStr });
+          p15 += Number(r?.data?.planned ?? 0);
+          e15 += Number(r?.data?.eaten ?? 0);
+          d = d.add(1, "day");
         }
-        setPlanned15(p); setEaten15(e); setNoShow15(n);
+        setPlanned15(p15);
+        setEaten15(e15);
+        setNoShow15(Math.max(0, p15 - e15));
       } catch (e) {
-        setErr(e?.response?.data?.message || e.message || "Erreur de chargement");
+        setErr(e?.response?.data?.message || "Erreur de chargement");
       } finally {
         setLoading(false);
       }
     })();
-  }, [today]);
+  }, [today, isManager, managerEstablishmentId]);
+
+  const rate = planned > 0 ? Math.round((eaten / planned) * 100) : 0;
+  const rate15 = planned15 > 0 ? Math.round((eaten15 / planned15) * 100) : 0;
 
   return (
     <div className="p-4 space-y-6">
-      <h1 className="text-2xl font-semibold">Tableau de bord</h1>
-
-      {err && (
-        <div className="text-red-700 bg-red-50 border border-red-200 rounded p-3">
-          {String(err)}
-        </div>
-      )}
-
-      {/* === Stats du jour === */}
-      <section>
-        <div className="mb-2 text-sm text-slate-600">
-          Statistiques du jour&nbsp;: <b>{dayjs(today).format("DD/MM/YYYY")}</b>
-        </div>
-        {loading ? (
-          <div className="text-slate-500">Chargement…</div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <StatCard title="Planifiés aujourd’hui" value={planned}   accent="from-blue-500 to-indigo-500" />
-            <StatCard title="Servis aujourd’hui"     value={eaten}     accent="from-emerald-500 to-teal-500" />
-            <StatCard title="Absents aujourd’hui"    value={noShow}    accent="from-rose-500 to-pink-500" />
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-xl font-semibold">Tableau de bord</h1>
+        {isManager && (
+          <div className="text-sm text-slate-600">
+            Résultats de votre établissement (filtrés automatiquement)
           </div>
         )}
-      </section>
+      </div>
 
-      {/* === Stats 15 jours === */}
-      <section>
-        <div className="mb-2 text-sm text-slate-600">
-          Sur <b>15 jours</b> — du <b>{start15.format("DD/MM/YYYY")}</b> au <b>{end15.format("DD/MM/YYYY")}</b>
-        </div>
-        {loading ? (
-          <div className="text-slate-500">Calcul…</div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <StatCard title="Planifiés (15 j)" value={planned15} accent="from-blue-500 to-indigo-500" />
-            <StatCard title="Servis (15 j)"     value={eaten15}   accent="from-emerald-500 to-teal-500" />
-            <StatCard title="Absents (15 j)"    value={noShow15}  accent="from-rose-500 to-pink-500" />
-          </div>
-        )}
-      </section>
+      {err && <div className="text-red-600">{String(err)}</div>}
+      {loading && <div className="text-slate-500">Chargement…</div>}
 
-      {/* === Lien unique vers la page Rapports === */}
-      <div className="pt-2">
-        <Link
-          to={`/reports/summary?tab=15d&from=${start15.format("YYYY-MM-DD")}&to=${end15.format("YYYY-MM-DD")}`}
-          className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-slate-50"
-        >
-          Pour plus de statistiques et de détails, consultez la page Rapports →
-        </Link>
+      {/* Today’s KPIs */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard title="Planifiés (aujourd’hui)" value={planned} />
+        <StatCard title="Ont mangé (aujourd’hui)" value={eaten} accent="from-sky-500 to-indigo-500" />
+        <StatCard title="Absents (aujourd’hui)" value={noShow} accent="from-rose-500 to-pink-500" />
+        <StatCard title="Taux de présence (aujourd’hui)" value={`${rate}%`} accent="from-amber-500 to-orange-500" />
+      </div>
+
+      {/* Rolling 15-day KPIs */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard title="Planifiés (15 jours)" value={planned15} />
+        <StatCard title="Ont mangé (15 jours)" value={eaten15} accent="from-sky-500 to-indigo-500" />
+        <StatCard title="Absents (15 jours)" value={noShow15} accent="from-rose-500 to-pink-500" />
+        <StatCard title="Taux de présence (15 jours)" value={`${rate15}%`} accent="from-amber-500 to-orange-500" />
       </div>
     </div>
   );
