@@ -85,6 +85,7 @@ export default async function mealPlansSelfRoutes(fastify) {
   // ---------- GET /api/mealplans/self ----------
   fastify.get("/self", async (req, reply) => {
     const person = await getCurrentPerson(req);
+    console.log("get /self for person:", person);
     if (!person) return reply.code(404).send({ message: "Personne introuvable pour cet utilisateur." });
 
     const w = pickWindow(new Date());
@@ -127,6 +128,7 @@ export default async function mealPlansSelfRoutes(fastify) {
   // ---------- POST /api/mealplans/self ----------
   fastify.post("/self", async (req, reply) => {
     const person = await getCurrentPerson(req);
+    console.log("post /self for person:", person, "body:", req.body);
     if (!person) return reply.code(404).send({ message: "Personne introuvable pour cet utilisateur." });
 
     const { start, end, choices } = req.body || {};
@@ -166,6 +168,8 @@ export default async function mealPlansSelfRoutes(fastify) {
       where: { personId: person.id, date: { gte: startDate, lte: endDate } },
       select: { id: true, date: true, meal: true, planned: true },
     });
+
+    console.log("Existing meal plans in window:", existing);
 
     const existingMap = new Map(existing.map((e) => [`${ymd(new Date(e.date))}|${e.meal}`, e]));
     let created = 0, updated = 0, deleted = 0;

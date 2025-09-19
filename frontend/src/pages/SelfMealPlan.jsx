@@ -90,6 +90,7 @@ export default function SelfMealPlan() {
       try {
         // { start, end, choices, status }
         const { data } = await api.get("/mealplans/self");
+        console.log("Fetched self mealplan:", data);
         if (cancel) return;
 
         if (data?.start && data?.end) {
@@ -159,7 +160,9 @@ export default function SelfMealPlan() {
     setError("");
     try {
       const payload = { start: fmtISO(startDate), end: fmtISO(endDate), choices };
+      console.log("Saving mealplan:", payload);
       const { data } = await api.post("/mealplans/self", payload);
+      console.log("Save response:", data);
       if (data?.status) setStatus(data.status);
     } catch {
       setError("Échec de l’enregistrement. Réessayez.");
