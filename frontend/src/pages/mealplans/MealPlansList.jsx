@@ -176,24 +176,35 @@ export default function MealPlansList() {
   // debounce
   const debounceRef = useRef(null);
 
-  // list establishments once
-  useEffect(() => {
-    const run = async () => {
-      try {
-        const { data } = await apiListEstablishments({ page: 1, pageSize: 1000 });
-        const items = Array.isArray(data?.items) ? data.items : [];
-        const sorted = items
-          .map((x) => ({ id: x.id, name: x.name || "—" }))
-          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-        setEstabs(sorted);
-      } catch {
-        setEstabs([]);
-      } finally {
-        setEstabsLoading(false);
-      }
-    };
-    run();
-  }, []); // uses establishments API you already wired  :contentReference[oaicite:0]{index=0}
+async function fetchAllEstablishments() {
+  const pageSize = 500;
+  let page = 1, all = [];
+  while (true) {
+    const { data } = await apiListEstablishments({ page, pageSize });
+    const items = Array.isArray(data?.items) ? data.items : [];
+    all.push(...items);
+    const total = Number(data?.total ?? all.length);
+    if (all.length >= total || items.length < pageSize) break;
+    page++;
+  }
+  // sort by name for stable UI
+  return all.map(x => ({ id: x.id, name: x.name || "—" }))
+            .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+}
+
+
+  // ---- Establishments list
+ useEffect(() => {
+   const run = async () => {
+     try { setEstabs(await fetchAllEstablishments()); }
+     catch { setEstabs([]); }
+     finally { setEstabsLoading(false); }
+   };
+   run();
+ }, []);
+
+
+
 
   // manager: lock id + fetch name (works for mobile too)
   useEffect(() => {

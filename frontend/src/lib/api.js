@@ -2,20 +2,36 @@
 import axios from "axios";
 
 /**
- * Use VITE_API_BASE if you deploy FE/BE separately.
- * In dev (Vite proxy), keep "/api".
+ * Dev: if VITE_API_BASE is empty and you're on Vite (e.g. :5173),
+ * this auto-uses http://<current-host>:<VITE_API_PORT || 3000>/api
+ * Prod: if VITE_API_BASE is set (e.g. https://api.example.com), we use it.
  */
-// PREFIX: usually "/api" (your Fastify prefix)
-const BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, ""); // no trailing slash
-const PREFIX = (import.meta.env.VITE_API_PREFIX || "/api").replace(/\/+$/, ""); // "/api"
+
+const RAW_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
+const PREFIX   = (import.meta.env.VITE_API_PREFIX || "/api").replace(/\/+$/, "");
+const isDev    = import.meta.env.DEV;
+
+let baseURL;
+if (RAW_BASE) {
+  // explicit full origin given
+  baseURL = `${RAW_BASE}${PREFIX}`;
+} else if (isDev) {
+  // no proxy? talk to backend port directly (same host)
+  const host = window.location.hostname;     // e.g. 192.168.100.8
+  const port = import.meta.env.VITE_API_PORT || "3000";
+  baseURL = `http://${host}:${port}${PREFIX}`;
+} else {
+  // prod same-origin (behind reverse proxy)
+  baseURL = `${PREFIX}`;
+}
 
 const api = axios.create({
-  // Examples:
-  //  - DEV proxy: BASE = ""     → baseURL = "/api"
-  //  - PROD:      BASE = "https://gprest.example.com" → baseURL = "https://gprest.example.com/api"
-  baseURL: `${BASE}${PREFIX}`,
+  baseURL,
   withCredentials: false,
 });
+
+// Optional: small console hint during dev
+if (isDev) console.info("[api] baseURL =", baseURL);
 
 /** We inject the Redux store so interceptors can dispatch logout */
 let _store;
@@ -34,7 +50,7 @@ api.interceptors.response.use(
   (err) => {
     const status = err?.response?.status;
     if (status === 401 || status === 403) {
-      localStorage.removeItem("token"); 
+      localStorage.removeItem("token");
       _store?.dispatch({ type: "auth/logout" });
       if (location.pathname !== "/login") {
         const reason = status === 401 ? "session_expired" : "forbidden";

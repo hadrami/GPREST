@@ -148,17 +148,41 @@ export default function Summary() {
   const [searchQ, setSearchQ] = useState("");
   const [ setPeople] = useState([]);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false); 
+  const [ setEstabsLoading] = useState(true);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await apiListEstablishments({ page: 1, pageSize: 200 });
-        const items = Array.isArray(data?.items) ? data.items : data;
-        setEstablishments(items || []);
-      } catch {/* ignore errors, keep list empty */ }
-    })();
-  }, []); // keep list for non-managers
 
+
+async function fetchAllEstablishments() {
+  const pageSize = 500;
+  let page = 1, all = [];
+  while (true) {
+    const { data } = await apiListEstablishments({ page, pageSize });
+    const items = Array.isArray(data?.items) ? data.items : [];
+    all.push(...items);
+    const total = Number(data?.total ?? all.length);
+    if (all.length >= total || items.length < pageSize) break;
+    page++;
+  }
+  // sort by name for stable UI
+  return all.map(x => ({ id: x.id, name: x.name || "—" }))
+            .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+}
+
+
+  // ---- Establishments list
+ useEffect(() => {
+   const run = async () => {
+     try { setEstablishments(await fetchAllEstablishments()); }
+     catch { setEstablishments([]); }
+     finally { setEstabsLoading(false); }
+   };
+   run();
+ }, []);
+
+ 
+ 
+ 
+ 
   // Lock establishment for managers + fetch label
   useEffect(() => {
     let cancel = false;

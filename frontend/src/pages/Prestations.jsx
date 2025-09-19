@@ -39,6 +39,10 @@ function moneyForRow(type, counts) {
   return counts.petitDej * r.petitDej + counts.dej * r.dej + counts.diner * r.diner;
 }
 
+
+
+
+
 export default function Prestations() {
   const { user } = useSelector((s) => s.auth);
   const isManager = String(user?.role || "").toUpperCase() === "MANAGER";
@@ -58,6 +62,7 @@ export default function Prestations() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);    // aggregated rows
   const [page, setPage] = useState(1);
+  const [ setEstabsLoading] = useState(true);
 
   // Mobile filters
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
@@ -65,22 +70,32 @@ export default function Prestations() {
   // Debounce for auto-apply
   const debounceRef = useRef(null);
 
+  async function fetchAllEstablishments() {
+  const pageSize = 500;
+  let page = 1, all = [];
+  while (true) {
+    const { data } = await apiListEstablishments({ page, pageSize });
+    const items = Array.isArray(data?.items) ? data.items : [];
+    all.push(...items);
+    const total = Number(data?.total ?? all.length);
+    if (all.length >= total || items.length < pageSize) break;
+    page++;
+  }
+  // sort by name for stable UI
+  return all.map(x => ({ id: x.id, name: x.name || "—" }))
+            .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+}
+
+
   // ---- Establishments list
-  useEffect(() => {
-    const run = async () => {
-      try {
-        const { data } = await apiListEstablishments({ page: 1, pageSize: 1000 });
-        const items = Array.isArray(data?.items) ? data.items : [];
-        const norm = items
-          .map((x) => ({ id: x.id, name: x.name || "—" }))
-          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-        setEstabs(norm);
-      } catch {
-        setEstabs([]);
-      }
-    };
-    run();
-  }, []); // :contentReference[oaicite:6]{index=6}
+ useEffect(() => {
+   const run = async () => {
+     try { setEstabs(await fetchAllEstablishments()); }
+     catch { setEstabs([]); }
+     finally { setEstabsLoading(false); }
+   };
+   run();
+ }, []);
 
   // ---- Manager: lock establishment id + fetch display name
   useEffect(() => {
