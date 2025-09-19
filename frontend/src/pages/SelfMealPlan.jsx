@@ -34,7 +34,6 @@ const addDays = (d, n) => {
   t.setDate(t.getDate() + n);
   return t;
 };
-const lastDayOfMonth = (y, m0) => new Date(y, m0 + 1, 0).getDate();
 
 /** Two windows per month:
  *  1..15  and  16..(end)
@@ -45,26 +44,35 @@ function computeUpcomingWindow(now = new Date()) {
   const probe = new Date(now);
   probe.setHours(0, 0, 0, 0);
 
+  const addDays = (d, n) => {
+    const t = new Date(d);
+    t.setDate(t.getDate() + n);
+    return t;
+  };
+  const lastDayOfMonth = (y, m0) => new Date(y, m0 + 1, 0).getDate();
+
+  // Scan this month and the next 18 months; pick the FIRST window whose lock hasn’t passed.
   for (let i = 0; i < 18; i++) {
     const y = probe.getFullYear();
     const m0 = probe.getMonth() + i;
-    const monthStart = new Date(y, m0, 1);
-    const firstStart = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
-    const firstEnd   = new Date(monthStart.getFullYear(), monthStart.getMonth(), 15); // 1..15
-    const secondStart = new Date(monthStart.getFullYear(), monthStart.getMonth(), 16); // 16..
-    const secondEnd   = new Date(
-      monthStart.getFullYear(),
-      monthStart.getMonth(),
-      lastDayOfMonth(firstStart.getFullYear(), firstStart.getMonth())
-    );
 
-    if (now < addDays(firstStart, -5)) return { start: firstStart, end: firstEnd };
-    if (now < addDays(secondStart, -5)) return { start: secondStart, end: secondEnd };
+    const firstStart  = new Date(y, m0, 1);
+    const firstEnd    = new Date(y, m0, 15);
+    const secondStart = new Date(y, m0, 16);
+    const secondEnd   = new Date(y, m0, lastDayOfMonth(y, m0));
+
+    const firstLock = addDays(firstStart, -5);
+    if (now < firstLock) return { start: firstStart, end: firstEnd };
+
+    const secondLock = addDays(secondStart, -5);
+    if (now < secondLock) return { start: secondStart, end: secondEnd };
   }
+
   // Fallback: next month first half
   const nx = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   return { start: nx, end: new Date(nx.getFullYear(), nx.getMonth(), 15) };
 }
+
 
 export default function SelfMealPlan() {
   const { user } = useSelector((s) => s.auth);

@@ -42,23 +42,37 @@ export default async function mealPlansSelfRoutes(fastify) {
   }
 
   // Pick current window (if now is inside) otherwise the first upcoming whose lock hasn't passed.
-  function pickWindow(now = new Date()) {
-    const n = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    // Try this month + next 3 months for safety
-    for (let i = 0; i < 4; i++) {
-      const y = n.getUTCFullYear();
-      const m0 = n.getUTCMonth() + i;
-      const wins = computeWindowsForMonth(y, m0);
-      for (const w of wins) {
-        const lockDate = addDays(w.start, -5);
-        if (n >= w.start && n <= w.end) return { ...w, locked: n >= lockDate };
-        if (n < lockDate) return { ...w, locked: false };
-      }
-    }
-    // Fallback: next month 1..15
-    const nx = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() + 1, 1));
-    return { start: nx, end: new Date(Date.UTC(nx.getUTCFullYear(), nx.getUTCMonth(), 15)), locked: false };
+function pickWindow(now = new Date()) {
+  const n = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+  const addDaysUTC = (d, days) => {
+    const t = new Date(d);
+    t.setUTCDate(t.getUTCDate() + days);
+    return t;
+  };
+  const lastDayOfMonth = (y, m0) => new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
+
+  for (let i = 0; i < 18; i++) {
+    const y = n.getUTCFullYear();
+    const m0 = n.getUTCMonth() + i;
+
+    const firstStart  = new Date(Date.UTC(y, m0, 1));
+    const firstEnd    = new Date(Date.UTC(y, m0, 15));
+    const secondStart = new Date(Date.UTC(y, m0, 16));
+    const secondEnd   = new Date(Date.UTC(y, m0, lastDayOfMonth(y, m0)));
+
+    const firstLock = addDaysUTC(firstStart, -5);
+    if (n < firstLock) return { start: firstStart, end: firstEnd, locked: false };
+
+    const secondLock = addDaysUTC(secondStart, -5);
+    if (n < secondLock) return { start: secondStart, end: secondEnd, locked: false };
   }
+
+  // Fallback: next month first half
+  const nx = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() + 1, 1));
+  return { start: nx, end: new Date(Date.UTC(nx.getUTCFullYear(), nx.getUTCMonth(), 15)), locked: false };
+}
+
 
   function daysBetween(start, end) {
     const out = [];
