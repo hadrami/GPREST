@@ -7,6 +7,8 @@ import fastifyCors from "@fastify/cors";
 import fastifyJwt from "@fastify/jwt";
 import fastifyMultipart from "@fastify/multipart";
 import { PrismaClient } from "@prisma/client";
+import mealPlansSelfRoutes from "./src/routes/mealplans.self.js";
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, ".env") });
@@ -75,8 +77,9 @@ await fastify.register(async function (instance) {
       return reply.code(403).send({ message: "Forbidden" });
     }
   });
-  const selfRoutes = (await import("./src/routes/mealplans.self.js")).default;
-  await instance.register(selfRoutes, { prefix: "/api/mealplans" }); // defines /self
+  // in backend/index.js
+await fastify.register(mealPlansSelfRoutes, { prefix: "/api/mealplans" });
+
 });
 
 

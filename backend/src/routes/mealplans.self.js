@@ -29,18 +29,22 @@ export default async function mealPlansSelfRoutes(fastify) {
   };
   const lastDayOfMonth = (y, m0) => new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
 
+  // Two windows: 1..15 and 16..end
   function computeWindowsForMonth(y, m0) {
-    const firstStart = new Date(Date.UTC(y, m0, 1));
-    const firstEnd = new Date(Date.UTC(y, m0, 14));
-    const secondStart = new Date(Date.UTC(y, m0, 15));
-    const secondEnd = new Date(Date.UTC(y, m0, lastDayOfMonth(y, m0)));
+    const firstStart  = new Date(Date.UTC(y, m0, 1));
+    const firstEnd    = new Date(Date.UTC(y, m0, 15));
+    const secondStart = new Date(Date.UTC(y, m0, 16));
+    const secondEnd   = new Date(Date.UTC(y, m0, lastDayOfMonth(y, m0)));
     return [
-      { start: firstStart, end: firstEnd },
+      { start: firstStart,  end: firstEnd },
       { start: secondStart, end: secondEnd },
     ];
   }
+
+  // Pick current window (if now is inside) otherwise the first upcoming whose lock hasn't passed.
   function pickWindow(now = new Date()) {
     const n = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    // Try this month + next 3 months for safety
     for (let i = 0; i < 4; i++) {
       const y = n.getUTCFullYear();
       const m0 = n.getUTCMonth() + i;
@@ -51,9 +55,11 @@ export default async function mealPlansSelfRoutes(fastify) {
         if (n < lockDate) return { ...w, locked: false };
       }
     }
+    // Fallback: next month 1..15
     const nx = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() + 1, 1));
-    return { start: nx, end: new Date(Date.UTC(nx.getUTCFullYear(), nx.getUTCMonth(), 14)), locked: false };
+    return { start: nx, end: new Date(Date.UTC(nx.getUTCFullYear(), nx.getUTCMonth(), 15)), locked: false };
   }
+
   function daysBetween(start, end) {
     const out = [];
     for (let d = new Date(start); d <= end; d = addDays(d, 1)) out.push(ymd(d));
@@ -80,11 +86,11 @@ export default async function mealPlansSelfRoutes(fastify) {
       choiceMap[d] = { petitDej: false, dej: false, diner: false };
     }
 
-    // No separate person fetch — filter via relation: person.matricule = username
+    // Filter via relation: person.matricule
     const items = await prisma.mealPlan.findMany({
       where: {
         date: { gte: w.start, lte: w.end },
-        person: { matricule }, // relation filter — you already use the same idea elsewhere
+        person: { matricule },
       },
       select: { date: true, meal: true, planned: true },
     });
@@ -115,16 +121,18 @@ export default async function mealPlansSelfRoutes(fastify) {
       return reply.code(400).send({ message: "Fenêtre invalide." });
     }
 
+    // server-side lock
     const lockDate = addDays(startDate, -5);
     if (new Date() >= lockDate) {
       return reply.code(403).send({ message: "Période verrouillée (moins de 5 jours avant le début)." });
     }
 
+    // must match one of the allowed windows
     const wins = computeWindowsForMonth(startDate.getUTCFullYear(), startDate.getUTCMonth());
     const okWindow = wins.some((w) => w.start.getTime() === startDate.getTime() && w.end.getTime() === endDate.getTime());
     if (!okWindow) return reply.code(400).send({ message: "Fenêtre non autorisée." });
 
-    // Build target set
+    // Build selected rows
     const selected = [];
     for (const day of daysBetween(startDate, endDate)) {
       const daySel = choices?.[day] || {};
@@ -133,7 +141,6 @@ export default async function mealPlansSelfRoutes(fastify) {
 
     // Atomic replace of this window for this matricule
     await prisma.$transaction(async (tx) => {
-      // 1) delete existing rows for this user in the window
       await tx.mealPlan.deleteMany({
         where: {
           date: { gte: startDate, lte: endDate },
@@ -141,15 +148,13 @@ export default async function mealPlansSelfRoutes(fastify) {
         },
       });
 
-      // 2) recreate rows
       for (const s of selected) {
         await tx.mealPlan.create({
           data: {
             date: new Date(`${s.day}T00:00:00Z`),
             meal: s.meal,
             planned: true,
-            // Connect by matricule (must be unique in Person)
-            person: { connect: { matricule } },
+            person: { connect: { matricule } }, // Person.matricule must be unique
           },
         });
       }

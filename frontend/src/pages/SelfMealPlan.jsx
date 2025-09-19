@@ -9,19 +9,20 @@ import {
   Loader2,
   User2,
   Info,
+  Coins,
 } from "lucide-react";
 import api from "../lib/api";
 
-// Prices aligned with Prestations.jsx
+// Tarifs (student vs staff)
 const RATES = {
   student: { petitDej: 2, dej: 5, diner: 3 },
-  staff: { petitDej: 15, dej: 50, diner: 25 },
+  staff:   { petitDej: 15, dej: 50, diner: 25 },
 };
 
 const MEALS = [
   { key: "petitDej", label: "Petit déj" },
-  { key: "dej", label: "Déjeuner" },
-  { key: "diner", label: "Dîner" },
+  { key: "dej",      label: "Déjeuner"  },
+  { key: "diner",    label: "Dîner"     },
 ];
 
 const fmtISO = (d) =>
@@ -35,8 +36,8 @@ const addDays = (d, n) => {
 };
 const lastDayOfMonth = (y, m0) => new Date(y, m0 + 1, 0).getDate();
 
-/** Two booking windows / month:
- *  1..14  and  15..(end)
+/** Two windows per month:
+ *  1..15  and  16..(end)
  *  Editable until (start - 5 days).
  *  We pick the next window whose (start - 5) is still in the future.
  */
@@ -49,9 +50,9 @@ function computeUpcomingWindow(now = new Date()) {
     const m0 = probe.getMonth() + i;
     const monthStart = new Date(y, m0, 1);
     const firstStart = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
-    const firstEnd = new Date(monthStart.getFullYear(), monthStart.getMonth(), 14);
-    const secondStart = new Date(monthStart.getFullYear(), monthStart.getMonth(), 15);
-    const secondEnd = new Date(
+    const firstEnd   = new Date(monthStart.getFullYear(), monthStart.getMonth(), 15); // 1..15
+    const secondStart = new Date(monthStart.getFullYear(), monthStart.getMonth(), 16); // 16..
+    const secondEnd   = new Date(
       monthStart.getFullYear(),
       monthStart.getMonth(),
       lastDayOfMonth(firstStart.getFullYear(), firstStart.getMonth())
@@ -62,7 +63,7 @@ function computeUpcomingWindow(now = new Date()) {
   }
   // Fallback: next month first half
   const nx = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  return { start: nx, end: new Date(nx.getFullYear(), nx.getMonth(), 14) };
+  return { start: nx, end: new Date(nx.getFullYear(), nx.getMonth(), 15) };
 }
 
 export default function SelfMealPlan() {
@@ -70,29 +71,26 @@ export default function SelfMealPlan() {
   const roleUC = String(user?.role || "").toUpperCase();
   const isStaff = roleUC === "STAFF";
   const kind = isStaff ? "staff" : "student";
+  const rates = RATES[kind];
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  // Window + selections
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
   const [choices, setChoices] = useState({}); // { 'YYYY-MM-DD': { petitDej, dej, diner } }
   const [status, setStatus] = useState(null); // 'PENDING_PAYMENT' | 'PAID' | null
 
-  // Fetch initial
+  // initial load
   useEffect(() => {
     let cancel = false;
     (async () => {
       setLoading(true);
       setError("");
       try {
-        // { start, end, choices, status }
         const { data } = await api.get("/mealplans/self");
-        console.log("Fetched self mealplan:", data);
         if (cancel) return;
-
         if (data?.start && data?.end) {
           setStartDate(new Date(`${data.start}T00:00:00`));
           setEndDate(new Date(`${data.end}T00:00:00`));
@@ -103,10 +101,15 @@ export default function SelfMealPlan() {
         }
         setChoices(data?.choices || {});
         setStatus(data?.status ?? null);
-      } catch {
+      } catch (e) {
         const w = computeUpcomingWindow(new Date());
         setStartDate(w.start);
         setEndDate(w.end);
+        const msg =
+          e?.response?.data?.message ||
+          e?.message ||
+          "Impossible de charger vos données.";
+        setError(msg);
       } finally {
         if (!cancel) setLoading(false);
       }
@@ -116,7 +119,6 @@ export default function SelfMealPlan() {
     };
   }, []);
 
-  // Days of current window
   const days = useMemo(() => {
     if (!startDate || !endDate) return [];
     const arr = [];
@@ -132,9 +134,8 @@ export default function SelfMealPlan() {
     return new Date() >= addDays(startDate, -5);
   }, [startDate]);
 
-  // Summary
+  // Summary (counts + totals)
   const summary = useMemo(() => {
-    const r = RATES[kind];
     const counts = { petitDej: 0, dej: 0, diner: 0 };
     for (const d of days) {
       const v = choices[d];
@@ -143,9 +144,14 @@ export default function SelfMealPlan() {
       if (v.dej) counts.dej++;
       if (v.diner) counts.diner++;
     }
-    const total = counts.petitDej * r.petitDej + counts.dej * r.dej + counts.diner * r.diner;
-    return { counts, total };
-  }, [choices, days, kind]);
+    const line = {
+      petitDej: counts.petitDej * rates.petitDej,
+      dej: counts.dej * rates.dej,
+      diner: counts.diner * rates.diner,
+    };
+    const total = line.petitDej + line.dej + line.diner;
+    return { counts, line, total };
+  }, [choices, days, rates]);
 
   const toggle = (day, mealKey) => {
     if (locked) return;
@@ -160,12 +166,14 @@ export default function SelfMealPlan() {
     setError("");
     try {
       const payload = { start: fmtISO(startDate), end: fmtISO(endDate), choices };
-      console.log("Saving mealplan:", payload);
       const { data } = await api.post("/mealplans/self", payload);
-      console.log("Save response:", data);
       if (data?.status) setStatus(data.status);
-    } catch {
-      setError("Échec de l’enregistrement. Réessayez.");
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.message ||
+        "Échec de l’enregistrement. Réessayez.";
+      setError(msg);
     } finally {
       setSaving(false);
     }
@@ -182,7 +190,7 @@ export default function SelfMealPlan() {
           <h1 className="text-xl font-semibold tracking-tight">Planifier mes repas</h1>
         </div>
 
-        {/* User / Matricule chip (green & readable) */}
+        {/* User / Matricule chip */}
         <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700 ring-1 ring-emerald-200">
           <User2 className="h-4 w-4" />
           <span className="font-medium">{user?.name || "Utilisateur"}</span>
@@ -195,20 +203,20 @@ export default function SelfMealPlan() {
         </div>
       </div>
 
-      {/* Instructions banner — big & colored */}
+      {/* Instructions & tarifs */}
       <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-100 p-4 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shadow">
             <Info className="h-5 w-5" />
           </div>
-          <div className="text-[15px] leading-7 text-emerald-900">
+          <div className="flex-1 text-[15px] leading-7 text-emerald-900">
             {startDate && endDate && (
               <p className="mb-1">
                 <span className="font-semibold">Période affichée:</span>{" "}
                 <span className="font-bold">
                   {fmtISO(startDate)} → {fmtISO(endDate)}
-                </span>
-                . Vous pouvez choisir vos repas pour cette période.
+                </span>{" "}
+                (moitié du mois: <b>1→15</b> ou <b>16→fin</b>).
               </p>
             )}
             <ul className="list-disc pl-5">
@@ -219,6 +227,21 @@ export default function SelfMealPlan() {
                 Chaque repas sélectionné est <b>payant</b>. Une absence sur un repas réservé reste due.
               </li>
             </ul>
+
+            {/* Tarifs */}
+            <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-300 shadow-sm">
+              <Coins className="h-4 w-4" />
+              <span className="font-semibold">Tarifs&nbsp;{isStaff ? "personnel" : "étudiant"}:</span>
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 ring-1 ring-emerald-200">
+                Petit déj&nbsp;<b>{rates.petitDej}</b> MRU
+              </span>
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 ring-1 ring-emerald-200">
+                Déjeuner&nbsp;<b>{rates.dej}</b> MRU
+              </span>
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 ring-1 ring-emerald-200">
+                Dîner&nbsp;<b>{rates.diner}</b> MRU
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -287,6 +310,11 @@ export default function SelfMealPlan() {
                             : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50",
                           locked && "cursor-not-allowed",
                         ].join(" ")}
+                        title={
+                          active
+                            ? `${m.label} sélectionné`
+                            : `Ajouter ${m.label}`
+                        }
                       >
                         {m.label}
                       </button>
@@ -302,27 +330,47 @@ export default function SelfMealPlan() {
       {/* Summary & actions */}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:col-span-2">
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between">
             <div className="font-semibold">Récapitulatif</div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="rounded-full bg-slate-100 px-3 py-1 ring-1 ring-slate-200">
-              Pt-déj: <b>{summary.counts.petitDej}</b>
-            </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 ring-1 ring-slate-200">
-              Déj: <b>{summary.counts.dej}</b>
-            </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 ring-1 ring-slate-200">
-              Dîner: <b>{summary.counts.diner}</b>
-            </span>
-
-            <span className="ml-auto rounded-xl bg-primary/10 px-3 py-1 text-primary ring-1 ring-primary/20">
-              Total: <b className="tabular-nums">{summary.total}</b> MRU{" "}
-              <span className="opacity-70">
-                ({kind === "staff" ? "tarifs personnel" : "tarifs étudiant"})
+          {/* Line items */}
+          <div className="space-y-2 text-sm text-slate-800">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 ring-1 ring-slate-200">
+                Petit déj: <b>{summary.counts.petitDej}</b> × {rates.petitDej} MRU
               </span>
-            </span>
+              <span className="ml-auto font-semibold">
+                = {summary.line.petitDej} MRU
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 ring-1 ring-slate-200">
+                Déjeuner: <b>{summary.counts.dej}</b> × {rates.dej} MRU
+              </span>
+              <span className="ml-auto font-semibold">
+                = {summary.line.dej} MRU
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 ring-1 ring-slate-200">
+                Dîner: <b>{summary.counts.diner}</b> × {rates.diner} MRU
+              </span>
+              <span className="ml-auto font-semibold">
+                = {summary.line.diner} MRU
+              </span>
+            </div>
+          </div>
+
+          {/* Total */}
+          <div className="mt-3 flex items-center justify-end">
+            <div className="rounded-xl bg-primary/10 px-4 py-2 text-primary ring-1 ring-primary/20">
+              Total à payer:{" "}
+              <b className="tabular-nums">{summary.total}</b> MRU{" "}
+              <span className="opacity-70">
+                ({isStaff ? "tarifs personnel" : "tarifs étudiant"})
+              </span>
+            </div>
           </div>
         </div>
 
