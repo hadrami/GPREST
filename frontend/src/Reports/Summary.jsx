@@ -167,6 +167,7 @@ const arr = Array.isArray(all) ? all : [];
 return arr
   .map(x => ({ id: x?.id, name: typeof x?.name === "string" ? x.name : String(x?.name ?? "—") }))
   .sort((a, b) => a.name.localeCompare(b.name));
+}
 
   // ---- Establishments list
  useEffect(() => {
