@@ -1,5 +1,5 @@
 // Usage:
-// node seed-stud-isms.mjs ./List_ISMS_2025.xlsx cmfe3psxl0001cpr0fi2fu5rt isms
+// node seed-stud-isms.mjs ./List_ISMS_2025.xlsx jfjfdshdfj isms
 //
 // Args: [2]xlsxPath [3]establishmentId [4]acronym
 // Email will be `${matricule}@${acronym}` (default "isms")
