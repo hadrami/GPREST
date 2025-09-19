@@ -62,7 +62,7 @@ export default function Prestations() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);    // aggregated rows
   const [page, setPage] = useState(1);
-  const [ setEstabsLoading] = useState(true);
+  const [ , setEstabsLoading] = useState(true);
 
   // Mobile filters
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);

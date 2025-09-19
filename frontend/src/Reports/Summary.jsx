@@ -146,9 +146,9 @@ export default function Summary() {
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
   const [searchQ, setSearchQ] = useState("");
-  const [ setPeople] = useState([]);
+  const [ , setPeople] = useState([]);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false); 
-  const [ setEstabsLoading] = useState(true);
+  const [ , setEstabsLoading] = useState(true);
 
 
 
