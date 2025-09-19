@@ -147,7 +147,7 @@ export default function Summary() {
   const [toDate, setToDate] = useState(today);
   const [searchQ, setSearchQ] = useState("");
   const [ setPeople] = useState([]);
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false); 
 
   useEffect(() => {
     (async () => {
